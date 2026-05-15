@@ -6,6 +6,20 @@ import { Button } from "./components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/card";
 import { Slider } from "./components/slider";
 import { Switch } from "./components/switch";
+import {
+  describeTarget,
+  findProjectedTarget,
+  getDebugId,
+  getLocalRect,
+  getProjectedControls,
+  isClickable,
+  type ProjectedSliderSetter,
+  updateRangeFromProjectedPoint,
+} from "./projection/domHitTest";
+import { createProjectionScene } from "./projection/scene";
+import { createSpherePanelSurface } from "./projection/sphereSurface";
+import type { ProjectionScene } from "./projection/types";
+import { ThreeProjectorDemo } from "./routes/ThreeProjectorDemo";
 import "./styles.css";
 
 type DemoState = {
@@ -94,19 +108,6 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.roundRect(x, y, w, h, r);
 }
 
-type Vec3 = {
-  x: number;
-  y: number;
-  z: number;
-};
-
-type ProjectedHit = {
-  x: number;
-  y: number;
-  u: number;
-  v: number;
-};
-
 type DebugRect = {
   left: number;
   top: number;
@@ -115,16 +116,8 @@ type DebugRect = {
   active: number;
 };
 
-type ProjectedSliderSetter = (value: number) => void;
-
 const maxDebugRects = 32;
-const panelProjection = {
-  uStart: 0.72,
-  uSpan: 0.18,
-  vStart: 0.14,
-  vSpan: 0.44,
-  minZ: 0.32,
-};
+const projectionScene = createProjectionScene([createSpherePanelSurface()]);
 
 function useProjectedDomRouter(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
@@ -132,6 +125,7 @@ function useProjectedDomRouter(
   enabled: boolean,
   setActiveDebugTarget: React.Dispatch<React.SetStateAction<string>>,
   sliderSetters: React.RefObject<Map<string, ProjectedSliderSetter>>,
+  scene: ProjectionScene,
 ) {
   const activeRangeRef = useRef<HTMLInputElement | null>(null);
 
@@ -143,7 +137,7 @@ function useProjectedDomRouter(
       const panel = panelRef.current;
       if (!panel) return;
 
-      const hit = mapCanvasPointToPanel(event, canvas, panel);
+      const hit = scene.inverseHitTest({ event, canvas, panel });
       if (!hit) {
         window.__projectionRouterStatus = {
           hit: false,
@@ -226,146 +220,7 @@ function useProjectedDomRouter(
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
     };
-  }, [canvasRef, panelRef, enabled, setActiveDebugTarget, sliderSetters]);
-}
-
-function mapCanvasPointToPanel(
-  event: PointerEvent,
-  canvas: HTMLCanvasElement,
-  panel: HTMLElement,
-): ProjectedHit | null {
-  const rect = canvas.getBoundingClientRect();
-  const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const px = (event.clientX - rect.left) * dpr;
-  const py = (rect.bottom - event.clientY) * dpr;
-  const minAxis = Math.min(canvas.width, canvas.height);
-  const p = {
-    x: (px * 2 - canvas.width) / minAxis - 0.18,
-    y: (py * 2 - canvas.height) / minAxis,
-  };
-
-  const rayOrigin: Vec3 = { x: 0, y: 0, z: 3.1 };
-  const rayDirection = normalize({ x: p.x, y: p.y, z: -2.05 });
-  const b = dot(rayOrigin, rayDirection);
-  const c = dot(rayOrigin, rayOrigin) - 1;
-  const h = b * b - c;
-  if (h < 0) return null;
-
-  const t = -b - Math.sqrt(h);
-  const normal = normalize({
-    x: rayOrigin.x + rayDirection.x * t,
-    y: rayOrigin.y + rayDirection.y * t,
-    z: rayOrigin.z + rayDirection.z * t,
-  });
-
-  const sphereU = Math.atan2(normal.z, normal.x) / (Math.PI * 2) + 0.5;
-  const sphereV = Math.asin(normal.y) / Math.PI + 0.5;
-  const panelU = 1 - (sphereU - panelProjection.uStart) / panelProjection.uSpan;
-  const panelV = (sphereV - panelProjection.vStart) / panelProjection.vSpan;
-  if (panelU <= 0 || panelU >= 1 || panelV <= 0 || panelV >= 1 || normal.z <= panelProjection.minZ) return null;
-
-  return {
-    x: panelU * panel.offsetWidth,
-    y: (1 - panelV) * panel.offsetHeight,
-    u: panelU,
-    v: panelV,
-  };
-}
-
-function findProjectedTarget(panel: HTMLElement, x: number, y: number): HTMLElement | null {
-  const controls = getProjectedControls(panel);
-
-  for (let index = controls.length - 1; index >= 0; index -= 1) {
-    const control = controls[index];
-    const rect = getLocalRect(control, panel);
-    if (
-      x >= rect.left &&
-      x <= rect.left + rect.width &&
-      y >= rect.top &&
-      y <= rect.top + rect.height
-    ) {
-      return control;
-    }
-  }
-
-  return null;
-}
-
-function getProjectedControls(panel: HTMLElement) {
-  return Array.from(panel.querySelectorAll<HTMLElement>("button, input, [role='switch'], [tabindex]"));
-}
-
-function updateRangeFromProjectedPoint(
-  range: HTMLInputElement,
-  panel: HTMLElement,
-  panelX: number,
-  sliderSetters: Map<string, ProjectedSliderSetter>,
-) {
-  const rect = getLocalRect(range, panel);
-  const min = Number(range.min || 0);
-  const max = Number(range.max || 100);
-  const step = Number(range.step || 1);
-  const localX = panelX - rect.left;
-  const ratio = Math.min(1, Math.max(0, localX / rect.width));
-  const stepped = Math.round((min + ratio * (max - min)) / step) * step;
-  const value = Math.min(max, Math.max(min, stepped));
-  const sliderId = range.dataset.projectedSliderId;
-  if (sliderId) {
-    sliderSetters.get(sliderId)?.(value);
-  }
-  range.value = String(value);
-}
-
-function getLocalRect(element: HTMLElement, ancestor: HTMLElement) {
-  let left = 0;
-  let top = 0;
-  let node: HTMLElement | null = element;
-
-  while (node && node !== ancestor) {
-    left += node.offsetLeft;
-    top += node.offsetTop;
-    node = node.offsetParent as HTMLElement | null;
-  }
-
-  if (node !== ancestor) {
-    const elementRect = element.getBoundingClientRect();
-    const ancestorRect = ancestor.getBoundingClientRect();
-    left = elementRect.left - ancestorRect.left;
-    top = elementRect.top - ancestorRect.top;
-  }
-
-  return {
-    left,
-    top,
-    width: element.offsetWidth,
-    height: element.offsetHeight,
-  };
-}
-
-function isClickable(target: HTMLElement) {
-  return target instanceof HTMLButtonElement || target.getAttribute("role") === "switch";
-}
-
-function describeTarget(target: HTMLElement) {
-  const label = target.getAttribute("aria-label") || target.textContent?.trim() || target.tagName.toLowerCase();
-  return `${target.tagName.toLowerCase()}${target instanceof HTMLInputElement ? `[${target.type}]` : ""}: ${label}`;
-}
-
-function getDebugId(target: HTMLElement, panel: HTMLElement) {
-  return String(getProjectedControls(panel).indexOf(target));
-}
-
-function dot(a: Vec3, b: Vec3) {
-  return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-function normalize(vector: Vec3): Vec3 {
-  const length = Math.hypot(vector.x, vector.y, vector.z) || 1;
-  return {
-    x: vector.x / length,
-    y: vector.y / length,
-    z: vector.z / length,
-  };
+  }, [canvasRef, panelRef, enabled, scene, setActiveDebugTarget, sliderSetters]);
 }
 
 function useSphereRenderer(
@@ -374,6 +229,7 @@ function useSphereRenderer(
   state: DemoState,
   debugEnabled: boolean,
   activeDebugTarget: string,
+  scene: ProjectionScene,
 ) {
   const [nativeReady, setNativeReady] = useState(false);
   const stateRef = useRef(state);
@@ -403,7 +259,7 @@ function useSphereRenderer(
     canvas.setAttribute("layoutsubtree", "");
     canvas.layoutSubtree = true;
 
-    const program = createSphereProgram(gl);
+    const program = createSphereProgram(gl, scene);
     const buffer = gl.createBuffer();
     const texture = gl.createTexture();
     const fallbackCanvas = document.createElement("canvas");
@@ -541,7 +397,7 @@ function useSphereRenderer(
       gl.deleteProgram(program);
       startedAt = 0;
     };
-  }, [canvasRef, panelRef]);
+  }, [canvasRef, panelRef, scene]);
 
   return nativeReady;
 }
@@ -578,7 +434,11 @@ function uploadDebugRects(
   gl.uniform4fv(gl.getUniformLocation(program, "uDebugRects"), rectData);
 }
 
-function createSphereProgram(gl: WebGL2RenderingContext) {
+function createSphereProgram(gl: WebGL2RenderingContext, scene: ProjectionScene) {
+  const surface = scene.surfaces[0];
+  if (!surface.glslPanelUv || !surface.glslOnSurface) {
+    throw new Error(`Surface ${surface.id} does not provide fragment-shader projection snippets.`);
+  }
   const vertex = `#version 300 es
     layout(location=0) in vec2 position;
     out vec2 vUv;
@@ -695,11 +555,8 @@ function createSphereProgram(gl: WebGL2RenderingContext) {
       base += rim * mix(vec3(0.1, 0.25, 0.28), vec3(0.75, 1.0, 0.95), uGlow) * 0.72;
       base += vec3(0.04, 0.09, 0.12) * sin((u + v + tFlow * 0.1) * 90.0) * uTurbulence;
 
-      vec2 panelUv = vec2(
-        1.0 - ((u - ${panelProjection.uStart.toFixed(2)}) / ${panelProjection.uSpan.toFixed(2)}),
-        (v - ${panelProjection.vStart.toFixed(2)}) / ${panelProjection.vSpan.toFixed(2)}
-      );
-      bool onPanel = panelUv.x > 0.0 && panelUv.x < 1.0 && panelUv.y > 0.0 && panelUv.y < 1.0 && n.z > ${panelProjection.minZ.toFixed(2)};
+      vec2 panelUv = ${surface.glslPanelUv};
+      bool onPanel = ${surface.glslOnSurface};
       if (onPanel) {
         vec4 panel = texture(uPanel, panelUv);
         vec2 edge = min(panelUv, 1.0 - panelUv);
@@ -915,8 +772,22 @@ function App() {
   const [debugEnabled, setDebugEnabled] = useState(false);
   const [activeDebugTarget, setActiveDebugTarget] = useState("");
   const sliderSetters = useRef(new Map<string, ProjectedSliderSetter>());
-  const nativeReady = useSphereRenderer(canvasRef, nativePanelRef, state, debugEnabled, activeDebugTarget);
-  useProjectedDomRouter(canvasRef, nativePanelRef, nativeReady, setActiveDebugTarget, sliderSetters);
+  const nativeReady = useSphereRenderer(
+    canvasRef,
+    nativePanelRef,
+    state,
+    debugEnabled,
+    activeDebugTarget,
+    projectionScene,
+  );
+  useProjectedDomRouter(
+    canvasRef,
+    nativePanelRef,
+    nativeReady,
+    setActiveDebugTarget,
+    sliderSetters,
+    projectionScene,
+  );
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -961,14 +832,42 @@ function App() {
               aria-label="Toggle projected hitbox overlay"
             />
           </div>
+          <div className="pointer-events-auto mt-3">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                window.history.pushState({}, "", "/three-projector");
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+            >
+              <Palette className="h-4 w-4" />
+              Three projector route
+            </Button>
+          </div>
         </div>
       </section>
     </main>
   );
 }
 
+function Root() {
+  const [path, setPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  if (path === "/three-projector") {
+    return <ThreeProjectorDemo />;
+  }
+
+  return <App />;
+}
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <Root />
   </React.StrictMode>,
 );

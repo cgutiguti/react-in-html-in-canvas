@@ -34,6 +34,48 @@ When those APIs are missing, the app keeps the same React component live as an o
 
 The React UI demonstrates ordinary React behavior: state updates, controlled inputs, sliders, buttons, switches, memoized derived values, and a `useEffect` interval. A true curved sphere creates non-affine hit testing; the browser API can align hit testing for planar transforms, while fully curved interaction requires custom ray/UV pointer routing or smaller planar patches.
 
+## Projection Engine Shape
+
+Projection and hit routing now use a small scene abstraction in `src/projection/`:
+
+- `ProjectionSurface` owns inverse hit testing from canvas pointer events back to panel-local DOM coordinates.
+- `ProjectionScene` can contain multiple surfaces and returns the first matching hit.
+- The current sphere is one surface implementation in `sphereSurface.ts`.
+- Shader placement is supplied by the same surface object via GLSL snippets, keeping visual projection and pointer routing tied to one contract.
+
+The intended growth path is to add more `ProjectionSurface` implementations for planes, meshes, lens/anamorphic projections, or multi-surface scenes. Each surface needs an inverse hit test and renderer-facing projection data.
+
+### Three.js Projector Surfaces
+
+The repo includes a Three.js adapter patterned after `three-html-to-canvas`:
+
+- `createThreeHtmlProjector(...)` patches Three materials so a texture is projected from a projector camera onto arbitrary meshes.
+- `createThreeProjectorSurface(...)` uses the same projector camera plus a render camera and raycast objects to invert pointer hits back into panel-local DOM coordinates.
+
+Sketch:
+
+```ts
+const projector = createThreeHtmlProjector({
+  camera: projectorCamera,
+  texture: htmlCanvasTexture,
+});
+
+for (const mesh of projectedMeshes) {
+  projector.applyTo(mesh);
+}
+
+const scene = createProjectionScene([
+  createThreeProjectorSurface({
+    renderCamera,
+    projectorCamera,
+    objects: projectedMeshes,
+    rendererDomElement: renderer.domElement,
+  }),
+]);
+```
+
+For interaction, the shared DOM router calls `scene.inverseHitTest(...)`, then uses the same `domHitTest` helpers as the sphere demo. This is the pattern to follow for arbitrary surfaces: render projection and hit projection must share the same projector/camera/lens state.
+
 Primary references:
 
 - https://wicg.github.io/html-in-canvas/
