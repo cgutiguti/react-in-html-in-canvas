@@ -10,16 +10,12 @@ import { Slider } from "../components/slider";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import {
   describeTarget,
-  dispatchProjectedClick,
-  dispatchProjectedPointerEvent,
-  findProjectedTarget,
   getLocalRect,
   getProjectedControls,
-  isClickable,
-  updateRangeFromProjectedPoint,
 } from "../projection/domHitTest";
+import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
 import { createThreeHtmlProjector } from "../projection/threeProjectedMaterial";
-import { createThreeProjectorSurface, type ThreeProjectorSurface } from "../projection/threeProjectorSurface";
+import { createThreeProjectorPickBuffer, type ThreeProjectorPickBuffer } from "../projection/threeProjectorPickBuffer";
 
 type ThreeControlState = {
   material: "pearl" | "carbon" | "glass";
@@ -43,6 +39,8 @@ const projectedTextureSize = { width: 260, height: 190 };
 const textureCss = `
 * { box-sizing: border-box; }
 body { margin: 0; }
+button, input { font: inherit; margin: 0; }
+button { appearance: none; -webkit-appearance: none; padding: 0; }
 .projected-three-card {
   position: relative;
   width: 260px;
@@ -62,6 +60,8 @@ body { margin: 0; }
 .projected-three-value { margin-top: 4px; font-size: 13px; font-weight: 800; }
 .projected-three-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
 .projected-three-actions button {
+  display: block;
+  width: 100%;
   height: 24px;
   border-radius: 7px;
   border: 1px solid rgba(2, 6, 23, .45);
@@ -82,6 +82,17 @@ body { margin: 0; }
   outline: 2px solid rgba(250, 204, 21, 1);
   box-shadow: 0 0 10px rgba(250, 204, 21, .95);
 }
+.projected-dom-interaction-root {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 260px;
+  height: 190px;
+  z-index: 2147483647;
+  opacity: 0.001;
+  pointer-events: none;
+  overflow: hidden;
+}
 `;
 
 export function ThreeProjectorDemo() {
@@ -89,15 +100,15 @@ export function ThreeProjectorDemo() {
   const textureSourceRef = useRef<HTMLDivElement | null>(null);
   const controlsRef = useRef<{
     htmlTexture?: HtmlToCanvasTexture;
+    domViewport?: ProjectedDomViewport;
     projector?: ReturnType<typeof createThreeHtmlProjector>;
     meshMaterials: THREE.Material[];
     projectedMeshes: THREE.Mesh[];
     projectorCamera?: THREE.PerspectiveCamera;
     renderCamera?: THREE.PerspectiveCamera;
     renderer?: THREE.WebGLRenderer;
-    projectionSurface?: ThreeProjectorSurface;
-    activeProjectedTarget?: HTMLElement | null;
-    activeRange?: HTMLInputElement | null;
+    pickBuffer?: ThreeProjectorPickBuffer;
+    lastProjectedPoint?: { x: number; y: number } | null;
   }>({ meshMaterials: [], projectedMeshes: [] });
   const [state, setState] = useState<ThreeControlState>(initialThreeState);
   const [loadStatus, setLoadStatus] = useState("loading GLB");
@@ -114,7 +125,7 @@ export function ThreeProjectorDemo() {
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     mount.appendChild(renderer.domElement);
     controlsRef.current.renderer = renderer;
 
@@ -150,6 +161,7 @@ export function ThreeProjectorDemo() {
 
     const htmlTexture = new HtmlToCanvasTexture(textureSource, { ...projectedTextureSize, pixelRatio: 2 });
     controlsRef.current.htmlTexture = htmlTexture;
+    controlsRef.current.domViewport = createProjectedDomViewport(textureSource);
 
     const projectorCamera = new THREE.PerspectiveCamera(cameraFov, mount.clientWidth / mount.clientHeight, 1, 100);
     projectorCamera.position.copy(restPosition);
@@ -205,15 +217,15 @@ export function ThreeProjectorDemo() {
         projector.applyTo(mesh);
       });
       scene.add(model);
-      controlsRef.current.projectionSurface = createThreeProjectorSurface({
+      controlsRef.current.pickBuffer = createThreeProjectorPickBuffer({
+        renderer,
+        scene,
         renderCamera: camera,
         projectorCamera,
-        objects: controlsRef.current.projectedMeshes,
-        rendererDomElement: renderer.domElement,
       });
       applyThreeState(state);
       updateProjectedHitboxUniforms(hitboxesVisible);
-      void htmlTexture.update(textureCss);
+      void updateProjectedTextures();
       setLoadStatus(`loaded ${meshCount} meshes`);
     }, undefined, (error) => {
       console.error(error);
@@ -237,48 +249,72 @@ export function ThreeProjectorDemo() {
       camera.updateProjectionMatrix();
       projectorCamera.aspect = width / height;
       projectorCamera.updateProjectionMatrix();
+      controlsRef.current.pickBuffer?.resize(width, height);
     };
     window.addEventListener("resize", onResize);
 
     const routeProjectedPointer = (event: PointerEvent) => {
       const panel = textureSourceRef.current;
-      const surface = controlsRef.current.projectionSurface;
+      const pickBuffer = controlsRef.current.pickBuffer;
       const rendererElement = controlsRef.current.renderer?.domElement;
-      if (!panel || !surface || !rendererElement) return;
+      if (!panel || !pickBuffer || !rendererElement) return;
 
-      const hit = surface.inverseHitTest({ event, canvas: rendererElement, panel });
-      if (!hit) {
-        rendererElement.style.cursor = "";
+      const picked = pickBuffer.pick(event.clientX, event.clientY);
+      if (!picked) {
         if (event.type !== "pointermove") {
-          setRouterStatus("missed projected meshes");
+          console.debug("[projected-pick-miss]", {
+            type: event.type,
+            pick: pickBuffer.getLastDebug(),
+          });
         }
-        return;
-      }
-
-      if (controlsRef.current.activeRange && (event.type === "pointermove" || event.type === "pointerup")) {
-        updateRangeFromProjectedPoint(controlsRef.current.activeRange, panel, hit.x, new Map());
-        event.preventDefault();
+        rendererElement.style.cursor = "";
         if (event.type === "pointerup") {
-          controlsRef.current.activeRange = null;
-          controlsRef.current.activeProjectedTarget = null;
+          controlsRef.current.domViewport?.releasePointer(event.pointerId);
+          controlsRef.current.lastProjectedPoint = null;
           try {
             rendererElement.releasePointerCapture?.(event.pointerId);
           } catch {
             // Pointer capture may already be released.
           }
         }
-        void controlsRef.current.htmlTexture?.update(textureCss);
+        if (event.type !== "pointermove") {
+          setRouterStatus("missed projected pixels");
+        }
         return;
       }
+      const hit = {
+        x: picked.u * projectedTextureSize.width,
+        y: (1 - picked.v) * projectedTextureSize.height,
+        u: picked.u,
+        v: picked.v,
+      };
+      controlsRef.current.lastProjectedPoint = { x: hit.x, y: hit.y };
 
-      const target = findProjectedTarget(panel, hit.x, hit.y);
-      rendererElement.style.cursor = target ? "pointer" : "";
+      const viewportResult = controlsRef.current.domViewport?.routePointer(event, hit) ?? { target: null, captured: null };
+      const target = viewportResult.target;
+      const captured = viewportResult.captured;
+      const domDebug = controlsRef.current.domViewport?.getLastDebug();
+      if (event.type !== "pointermove" || target || captured) {
+        console.debug("[projected-dom-route]", {
+          type: event.type,
+          hit,
+          target: target ? describeTarget(target) : "",
+          captured: captured ? describeTarget(captured) : "",
+          domDebug,
+        });
+      }
+
+      rendererElement.style.cursor = target || captured ? "pointer" : "";
       const nextRouterStatus = `${event.type}: x ${Math.round(hit.x)}, y ${Math.round(hit.y)}${
-        target ? ` -> ${describeTarget(target)}` : " -> panel only"
+        target
+          ? ` -> browser ${describeTarget(target)}`
+          : captured
+            ? ` -> captured ${describeTarget(captured)}`
+            : " -> projected pixel, no DOM target"
       }`;
-      if (event.type !== "pointermove" || target) {
+      if (event.type !== "pointermove" || target || captured) {
         setRouterStatus(nextRouterStatus);
-        requestAnimationFrame(() => void controlsRef.current.htmlTexture?.update(textureCss));
+        requestAnimationFrame(() => void updateProjectedTextures());
       }
       window.__projectionRouterStatus = {
         hit: true,
@@ -286,34 +322,18 @@ export function ThreeProjectorDemo() {
         y: Math.round(hit.y),
         u: Number(hit.u.toFixed(3)),
         v: Number(hit.v.toFixed(3)),
-        target: target ? describeTarget(target) : "",
+        target: target ? describeTarget(target) : captured ? describeTarget(captured) : "",
       };
 
-      if (event.type === "pointerdown" && target) {
-        controlsRef.current.activeProjectedTarget = target;
-        dispatchProjectedPointerEvent(target, "pointerdown", event, panel, hit.x, hit.y);
-        if (target instanceof HTMLInputElement && target.type === "range") {
-          controlsRef.current.activeRange = target;
-          updateRangeFromProjectedPoint(target, panel, hit.x, new Map());
-        } else if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-          target.focus();
-        }
-        void controlsRef.current.htmlTexture?.update(textureCss);
+      if ((event.type === "pointerdown" || event.type === "pointermove" || event.type === "pointerup") && (target || captured)) {
+        void updateProjectedTextures();
         event.preventDefault();
-        rendererElement.setPointerCapture?.(event.pointerId);
+        if (event.type === "pointerdown") {
+          rendererElement.setPointerCapture?.(event.pointerId);
+        }
       }
 
       if (event.type === "pointerup") {
-        const activeTarget = controlsRef.current.activeProjectedTarget;
-        if (activeTarget) {
-          dispatchProjectedPointerEvent(activeTarget, "pointerup", event, panel, hit.x, hit.y);
-          if (target === activeTarget && isClickable(activeTarget)) {
-            dispatchProjectedClick(activeTarget, event, panel, hit.x, hit.y);
-          }
-          controlsRef.current.activeProjectedTarget = null;
-          void controlsRef.current.htmlTexture?.update(textureCss);
-          event.preventDefault();
-        }
         try {
           rendererElement.releasePointerCapture?.(event.pointerId);
         } catch {
@@ -335,6 +355,7 @@ export function ThreeProjectorDemo() {
       orbit.dispose();
       dracoLoader.dispose();
       htmlTexture.dispose();
+      controlsRef.current.pickBuffer?.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
@@ -342,15 +363,19 @@ export function ThreeProjectorDemo() {
 
   useEffect(() => {
     applyThreeState(state);
-    void controlsRef.current.htmlTexture?.update(textureCss);
+    void updateProjectedTextures();
   }, [state]);
 
   useEffect(() => {
     updateProjectedHitboxUniforms(hitboxesVisible);
-    void controlsRef.current.htmlTexture?.update(textureCss);
-    const frame = requestAnimationFrame(() => void controlsRef.current.htmlTexture?.update(textureCss));
+    void updateProjectedTextures();
+    const frame = requestAnimationFrame(() => void updateProjectedTextures());
     return () => cancelAnimationFrame(frame);
   }, [hitboxesVisible]);
+
+  async function updateProjectedTextures() {
+    await controlsRef.current.htmlTexture?.update(textureCss);
+  }
 
   function applyThreeState(next: ThreeControlState) {
     for (const material of controlsRef.current.meshMaterials) {
@@ -491,7 +516,7 @@ export function ThreeProjectorDemo() {
         </CardContent>
       </Card>
 
-      <div className="fixed -left-[9999px] top-0">
+      <div className="projected-dom-interaction-root">
         <div
           ref={textureSourceRef}
           className={`projected-three-card ${hitboxesVisible ? "show-projected-hitboxes" : ""}`}
