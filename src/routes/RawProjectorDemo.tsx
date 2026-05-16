@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { ArrowLeft, Crosshair } from "lucide-react";
 import { Button } from "../components/button";
 import { describeTarget } from "../projection/domHitTest";
@@ -22,11 +25,13 @@ type Engine = {
   pick(clientX: number, clientY: number): { u: number; v: number; receiverId: number } | null;
   orbit(dx: number, dy: number): void;
   zoom(deltaY: number): void;
+  setSceneMesh(sceneMesh: SceneMeshData): void;
   setHitMapVisible(visible: boolean): void;
 };
 
 const panelSize = { width: 360, height: 260 };
 type ProjectedPick = { u: number; v: number; receiverId: number };
+type SceneMeshData = { vertices: Float32Array; indices: Uint16Array | Uint32Array };
 
 const panelCss = `
 * { box-sizing: border-box; }
@@ -175,6 +180,15 @@ export function RawProjectorDemo() {
       engine.render();
     };
     updateTexture();
+    void loadOriginalProjectorModel().then((sceneMesh) => {
+      if (disposed || engineRef.current !== engine) return;
+      engine.setSceneMesh(sceneMesh);
+      engine.render();
+      setStatus("loaded original GLB geometry");
+    }).catch((error) => {
+      console.warn("[raw-projector] original GLB load failed; using procedural fallback", error);
+      setStatus("using procedural fallback geometry");
+    });
 
     let frame = 0;
     const renderLoop = () => {
@@ -466,11 +480,12 @@ function createRawProjectorEngine(
   const context = canvas.getContext("webgl", { antialias: true, alpha: false });
   if (!context) throw new Error("WebGL is not available.");
   const gl: WebGLRenderingContext = context;
+  gl.getExtension("OES_element_index_uint");
 
   const program = createProgram(gl, vertexShader, fragmentShader);
   const pickProgram = createProgram(gl, vertexShader, pickFragmentShader);
   const receiverPickProgram = createProgram(gl, receiverPickVertexShader, receiverPickFragmentShader);
-  const mesh = createSceneMesh(gl);
+  let mesh = createSceneMesh(gl);
   const domTexture = gl.createTexture();
   const pickTexture = gl.createTexture();
   const pickDepth = gl.createRenderbuffer();
@@ -484,8 +499,8 @@ function createRawProjectorEngine(
   let yaw = 0;
   let pitch = 0;
   let hitMapVisible = true;
-  const projectorTarget = [0, -0.1, -3.4] as Vec3;
-  const projectorEye = [0, 0.7, 6.5] as Vec3;
+  const projectorTarget = [0.6, -2.35, -2.35] as Vec3;
+  const projectorEye = [0, 0, 15] as Vec3;
   const initialViewRadius = length(subtract(projectorEye, projectorTarget));
   let viewRadius = initialViewRadius;
   const uvFit = { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 };
@@ -493,11 +508,11 @@ function createRawProjectorEngine(
   const projection = mat4();
   const viewProjection = mat4();
   const projectorViewProjection = mat4();
-  const light = normalize([-0.25, 0.85, 0.46]);
+  const light = normalize(subtract(projectorEye, projectorTarget));
 
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
-  gl.clearColor(0.97, 0.97, 0.95, 1);
+  gl.clearColor(1, 1, 1, 1);
   gl.bindTexture(gl.TEXTURE_2D, domTexture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -516,14 +531,14 @@ function createRawProjectorEngine(
       projectorTarget[1] + Math.sin(orbitPitch) * viewRadius,
       projectorTarget[2] + Math.cos(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
     ];
-    perspective(projection, radians(34), width / height, 0.1, 80);
+    perspective(projection, radians(45), width / height, 0.1, 100);
     lookAt(view, eye, projectorTarget, [0, 1, 0]);
     multiply(viewProjection, projection, view);
 
     const projectorView = mat4();
     const projectorProjection = mat4();
     lookAt(projectorView, projectorEye, projectorTarget, [0, 1, 0]);
-    perspective(projectorProjection, radians(34), width / height, 0.1, 30);
+    perspective(projectorProjection, radians(14), width / height, 1, 100);
     multiply(projectorViewProjection, projectorProjection, projectorView);
   }
 
@@ -582,7 +597,7 @@ function createRawProjectorEngine(
     }
     const hitLocation = gl.getUniformLocation(targetProgram, "uShowHitMap");
     if (hitLocation) gl.uniform1f(hitLocation, !pickPass && hitMapVisible ? 1 : 0);
-    gl.drawElements(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(gl.TRIANGLES, mesh.indexCount, mesh.indexType, 0);
   }
 
   function resizePickTarget() {
@@ -604,7 +619,7 @@ function createRawProjectorEngine(
     render() {
       updateMatrices();
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.clearColor(0.97, 0.97, 0.95, 1);
+      gl.clearColor(1, 1, 1, 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.viewport(0, 0, width, height);
       draw(program, false);
@@ -679,7 +694,12 @@ function createRawProjectorEngine(
     },
     zoom(deltaY) {
       const scale = Math.exp(deltaY * 0.0012);
-      viewRadius = Math.max(2.2, Math.min(24, viewRadius * scale));
+      viewRadius = Math.max(4, Math.min(36, viewRadius * scale));
+    },
+    setSceneMesh(sceneMesh) {
+      gl.deleteBuffer(mesh.vertexBuffer);
+      gl.deleteBuffer(mesh.indexBuffer);
+      mesh = uploadSceneMesh(gl, sceneMesh);
     },
     setHitMapVisible(visible) {
       hitMapVisible = visible;
@@ -731,7 +751,7 @@ void main() {
     step(uProjectorUvFit.x, rawUv.x) * step(rawUv.x, uProjectorUvFit.x + uProjectorUvFit.z) *
     step(uProjectorUvFit.y, rawUv.y) * step(rawUv.y, uProjectorUvFit.y + uProjectorUvFit.w);
   float inside = insideRaw * step(-1.0, ndc.z) * step(ndc.z, 1.0);
-  vec3 base = vec3(0.93) * (0.78 + max(dot(normalize(vNormal), uLight), 0.0) * 0.22);
+  vec3 base = vec3(1.0) * (0.88 + max(dot(normalize(vNormal), uLight), 0.0) * 0.12);
   vec4 projected = texture2D(uDomTexture, uv);
   vec3 color = mix(base, projected.rgb, projected.a * inside);
   if (uShowHitMap > 0.5 && inside > 0.5 && projected.a > 0.08) {
@@ -813,6 +833,76 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string) 
   return shader;
 }
 
+async function loadOriginalProjectorModel(): Promise<SceneMeshData> {
+  const loader = new GLTFLoader();
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath("/draco/");
+  loader.setDRACOLoader(dracoLoader);
+  try {
+    const gltf = await loader.loadAsync("/model.glb");
+    const vertices: number[] = [];
+    const indices: number[] = [];
+    const position = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const normalMatrix = new THREE.Matrix3();
+    const worldPosition = new THREE.Vector3();
+    const worldNormal = new THREE.Vector3();
+    let receiverId = 1;
+
+    gltf.scene.updateMatrixWorld(true);
+    gltf.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || !(mesh.geometry instanceof THREE.BufferGeometry)) return;
+      mesh.updateWorldMatrix(true, false);
+      normalMatrix.getNormalMatrix(mesh.matrixWorld);
+      const geometry = mesh.geometry;
+      const positions = geometry.getAttribute("position");
+      const normals = geometry.getAttribute("normal");
+      if (!positions || !normals) return;
+
+      const nextReceiverId = mesh.name === "bg" ? 1 : receiverId + 1;
+      receiverId = nextReceiverId;
+      const vertexStart = vertices.length / 7;
+      for (let index = 0; index < positions.count; index += 1) {
+        position.fromBufferAttribute(positions, index);
+        normal.fromBufferAttribute(normals, index);
+        worldPosition.copy(position).applyMatrix4(mesh.matrixWorld);
+        worldNormal.copy(normal).applyMatrix3(normalMatrix).normalize();
+        vertices.push(
+          worldPosition.x,
+          worldPosition.y,
+          worldPosition.z,
+          worldNormal.x,
+          worldNormal.y,
+          worldNormal.z,
+          nextReceiverId,
+        );
+      }
+
+      const geometryIndex = geometry.index;
+      if (geometryIndex) {
+        for (let index = 0; index < geometryIndex.count; index += 1) {
+          indices.push(vertexStart + geometryIndex.getX(index));
+        }
+      } else {
+        for (let index = 0; index < positions.count; index += 1) {
+          indices.push(vertexStart + index);
+        }
+      }
+    });
+
+    if (!vertices.length || !indices.length) {
+      throw new Error("model.glb did not contain renderable mesh geometry.");
+    }
+    return {
+      vertices: new Float32Array(vertices),
+      indices: vertices.length / 7 > 65535 ? new Uint32Array(indices) : new Uint16Array(indices),
+    };
+  } finally {
+    dracoLoader.dispose();
+  }
+}
+
 function createSceneMesh(gl: WebGLRenderingContext) {
   const vertices: number[] = [];
   const indices: number[] = [];
@@ -835,14 +925,19 @@ function createSceneMesh(gl: WebGLRenderingContext) {
   addBox(vertices, indices, [2.35, 0.25, -3.5], [1.35, 0.16, 0.86], 32);
   addBox(vertices, indices, [3.15, -0.55, -3.25], [0.82, 0.14, 0.7], 33);
 
+  return uploadSceneMesh(gl, { vertices: new Float32Array(vertices), indices: new Uint16Array(indices) });
+}
+
+function uploadSceneMesh(gl: WebGLRenderingContext, sceneMesh: SceneMeshData) {
   const vertexBuffer = gl.createBuffer();
   const indexBuffer = gl.createBuffer();
   if (!vertexBuffer || !indexBuffer) throw new Error("Could not create scene buffers.");
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, sceneMesh.vertices, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
-  return { vertexBuffer, indexBuffer, indexCount: indices.length };
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, sceneMesh.indices, gl.STATIC_DRAW);
+  const indexType = sceneMesh.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+  return { vertexBuffer, indexBuffer, indexCount: sceneMesh.indices.length, indexType };
 }
 
 function addPlane(vertices: number[], indices: number[], a: Vec3, b: Vec3, c: Vec3, d: Vec3, receiverId: number) {
