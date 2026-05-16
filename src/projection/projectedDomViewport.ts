@@ -1,6 +1,7 @@
 import {
   describeTarget,
   dispatchProjectedPointerEvent,
+  getLocalRect,
   isClickable,
   updateRangeFromProjectedPoint,
 } from "./domHitTest";
@@ -39,11 +40,13 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     capturedTarget: HTMLElement | null;
     hoverTarget: HTMLElement | null;
     activeRange: HTMLInputElement | null;
+    activeText: { element: HTMLInputElement | HTMLTextAreaElement; anchor: number } | null;
     lastDebug: ProjectedDomDebug | null;
   } = {
     capturedTarget: null,
     hoverTarget: null,
     activeRange: null,
+    activeText: null,
     lastDebug: null,
   };
   const root = panel.parentElement;
@@ -101,6 +104,19 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       return { target: activeRange, captured: activeRange };
     }
 
+    if (state.activeText && (event.type === "pointermove" || event.type === "pointerup")) {
+      updateHover(state.activeText.element, event, hit);
+      updateTextSelection(state.activeText.element, panel, hit, state.activeText.anchor);
+      const activeText = state.activeText.element;
+      if (event.type === "pointerup") {
+        dispatchProjectedPointerEvent(activeText, "pointerup", event, panel, hit.x, hit.y);
+        dispatchMouseEvent(activeText, "mouseup", event, panel, hit.x, hit.y);
+        state.activeText = null;
+        state.capturedTarget = null;
+      }
+      return { target: activeText, captured: activeText };
+    }
+
     const target = hitTest(hit);
     const captured = state.capturedTarget;
 
@@ -120,8 +136,13 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       if (target instanceof HTMLInputElement && target.type === "range") {
         state.activeRange = target;
         updateRangeFromProjectedPoint(target, panel, hit.x, new Map());
+      } else if (isTextControl(target)) {
+        const caret = getTextCaretIndex(target, panel, hit);
+        target.focus({ preventScroll: true });
+        setTextSelection(target, caret, caret);
+        state.activeText = { element: target, anchor: caret };
       } else if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
-        target.focus();
+        target.focus({ preventScroll: true });
       }
 
       return { target, captured: state.capturedTarget };
@@ -140,6 +161,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       }
       state.capturedTarget = null;
       state.activeRange = null;
+      state.activeText = null;
       return { target, captured };
     }
 
@@ -149,6 +171,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       }
       state.capturedTarget = null;
       state.activeRange = null;
+      state.activeText = null;
       updateHover(null, event, hit);
       return { target, captured };
     }
@@ -204,6 +227,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     releasePointer() {
       state.capturedTarget = null;
       state.activeRange = null;
+      state.activeText = null;
     },
     getCapturedTarget() {
       return state.capturedTarget;
@@ -310,6 +334,107 @@ function dispatchWheelEvent(
     shiftKey: source.shiftKey,
     metaKey: source.metaKey,
   }));
+}
+
+function isTextControl(target: HTMLElement): target is HTMLInputElement | HTMLTextAreaElement {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (!(target instanceof HTMLInputElement)) return false;
+  return ["", "text", "search", "url", "tel", "email", "password"].includes(target.type);
+}
+
+function updateTextSelection(
+  element: HTMLInputElement | HTMLTextAreaElement,
+  panel: HTMLElement,
+  hit: ProjectedPointerHit,
+  anchor: number,
+) {
+  const caret = getTextCaretIndex(element, panel, hit);
+  setTextSelection(element, anchor, caret);
+}
+
+function setTextSelection(element: HTMLInputElement | HTMLTextAreaElement, anchor: number, focus: number) {
+  const start = Math.max(0, Math.min(anchor, focus));
+  const end = Math.max(0, Math.max(anchor, focus));
+  try {
+    element.setSelectionRange(start, end, focus < anchor ? "backward" : "forward");
+  } catch {
+    // Some input types expose text-ish values but reject selection APIs.
+  }
+}
+
+function getTextCaretIndex(element: HTMLInputElement | HTMLTextAreaElement, panel: HTMLElement, hit: ProjectedPointerHit) {
+  if (element instanceof HTMLTextAreaElement) {
+    return getTextareaCaretIndex(element, panel, hit);
+  }
+  return getSingleLineInputCaretIndex(element, panel, hit);
+}
+
+function getSingleLineInputCaretIndex(input: HTMLInputElement, panel: HTMLElement, hit: ProjectedPointerHit) {
+  const value = input.value;
+  if (!value) return 0;
+
+  const rect = getLocalRect(input, panel);
+  const style = window.getComputedStyle(input);
+  const localX = hit.x - rect.left - px(style.paddingLeft) + input.scrollLeft;
+  const canvas = getMeasurementCanvas();
+  const context = canvas.getContext("2d");
+  if (!context) return value.length;
+
+  context.font = style.font;
+  const text = input.type === "password" ? "•".repeat(value.length) : value;
+  if (localX <= 0) return 0;
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (context.measureText(text.slice(0, mid)).width < localX) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const before = context.measureText(text.slice(0, low)).width;
+  const after = low < text.length ? context.measureText(text.slice(0, low + 1)).width : before;
+  return localX - before > (after - before) / 2 ? Math.min(text.length, low + 1) : low;
+}
+
+function getTextareaCaretIndex(textarea: HTMLTextAreaElement, panel: HTMLElement, hit: ProjectedPointerHit) {
+  const rect = getLocalRect(textarea, panel);
+  const style = window.getComputedStyle(textarea);
+  const localX = hit.x - rect.left - px(style.paddingLeft) + textarea.scrollLeft;
+  const localY = hit.y - rect.top - px(style.paddingTop) + textarea.scrollTop;
+  const lineHeight = px(style.lineHeight) || px(style.fontSize) * 1.2 || 16;
+  const lineIndex = Math.max(0, Math.floor(localY / lineHeight));
+  const lines = textarea.value.split("\n");
+  const clampedLine = Math.min(lines.length - 1, lineIndex);
+  const priorLength = lines.slice(0, clampedLine).reduce((length, line) => length + line.length + 1, 0);
+
+  const canvas = getMeasurementCanvas();
+  const context = canvas.getContext("2d");
+  if (!context) return priorLength;
+  context.font = style.font;
+
+  const line = lines[clampedLine] ?? "";
+  if (localX <= 0) return priorLength;
+  let column = 0;
+  while (column < line.length && context.measureText(line.slice(0, column + 1)).width < localX) {
+    column += 1;
+  }
+  return priorLength + column;
+}
+
+let measurementCanvas: HTMLCanvasElement | null = null;
+
+function getMeasurementCanvas() {
+  measurementCanvas ??= document.createElement("canvas");
+  return measurementCanvas;
+}
+
+function px(value: string) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function formatRect(rect: DOMRect) {
