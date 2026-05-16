@@ -21,12 +21,14 @@ type Engine = {
   dispose(): void;
   uploadDomTexture(): boolean;
   requestNativePaint(): void;
-  pick(clientX: number, clientY: number): { u: number; v: number } | null;
+  pick(clientX: number, clientY: number): { u: number; v: number; receiverId: number } | null;
   orbit(dx: number, dy: number): void;
+  zoom(deltaY: number): void;
   setHitMapVisible(visible: boolean): void;
 };
 
 const panelSize = { width: 360, height: 260 };
+type ProjectedPick = { u: number; v: number; receiverId: number };
 
 const panelCss = `
 * { box-sizing: border-box; }
@@ -157,9 +159,11 @@ export function RawProjectorDemo() {
       engine.render();
     };
     const onPointerDown = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
       const picked = engine.pick(event.clientX, event.clientY);
       if (picked) {
         routingRef.current = true;
+        logProjectedBasis(engine, event, picked);
         orbitRef.current.active = false;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -171,6 +175,7 @@ export function RawProjectorDemo() {
       canvas.setPointerCapture?.(event.pointerId);
     };
     const onPointerMove = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
       if (routingRef.current) {
         const picked = engine.pick(event.clientX, event.clientY);
         if (picked) {
@@ -197,6 +202,7 @@ export function RawProjectorDemo() {
       }
     };
     const onPointerUp = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
       if (routingRef.current) {
         const picked = engine.pick(event.clientX, event.clientY);
         if (picked) routeProjectedEvent(event, picked);
@@ -212,6 +218,7 @@ export function RawProjectorDemo() {
       canvas.releasePointerCapture?.(event.pointerId);
     };
     const onPointerCancel = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
       const picked = engine.pick(event.clientX, event.clientY);
       if (picked) routeProjectedEvent(event, picked);
       viewportRef.current?.releasePointer(event.pointerId);
@@ -221,6 +228,7 @@ export function RawProjectorDemo() {
       canvas.releasePointerCapture?.(event.pointerId);
     };
     const onPointerLeave = (event: PointerEvent) => {
+      if (!event.isTrusted) return;
       if (!routingRef.current) {
         viewportRef.current?.routePointerExit(event);
       }
@@ -229,24 +237,64 @@ export function RawProjectorDemo() {
       }
     };
     const onWheel = (event: WheelEvent) => {
+      if (!event.isTrusted) return;
       const picked = engine.pick(event.clientX, event.clientY);
-      if (!picked) return;
-      const hit = {
-        u: picked.u,
-        v: picked.v,
-        x: picked.u * panelSize.width,
-        y: (1 - picked.v) * panelSize.height,
-      };
-      const result = viewportRef.current?.routeWheel(event, hit);
-      if (result?.target) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        setStatus(`wheel: ${Math.round(hit.x)}, ${Math.round(hit.y)} -> ${describeTarget(result.target)}`);
-        updateTexture();
+      if (picked) {
+        const hit = {
+          u: picked.u,
+          v: picked.v,
+          x: picked.u * panelSize.width,
+          y: (1 - picked.v) * panelSize.height,
+        };
+        const result = viewportRef.current?.routeWheel(event, hit);
+        if (result?.consumed) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          setStatus(`wheel: ${Math.round(hit.x)}, ${Math.round(hit.y)} -> ${result.target ? describeTarget(result.target) : "projected panel"}`);
+          updateTexture();
+          return;
+        }
       }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      engine.zoom(event.deltaY);
+      engine.render();
+      setStatus(`zoom: ${event.deltaY > 0 ? "out" : "in"}`);
     };
 
-    function routeProjectedEvent(event: PointerEvent, picked: { u: number; v: number }) {
+    function logProjectedBasis(engine: Engine, event: PointerEvent, picked: ProjectedPick) {
+      const sampleDistance = 8;
+      const sampleX = engine.pick(event.clientX + sampleDistance, event.clientY);
+      const sampleY = engine.pick(event.clientX, event.clientY + sampleDistance);
+      const duDx = sampleX ? unwrapDelta(sampleX.u - picked.u) / sampleDistance : null;
+      const dvDx = sampleX ? unwrapDelta(sampleX.v - picked.v) / sampleDistance : null;
+      const duDy = sampleY ? unwrapDelta(sampleY.u - picked.u) / sampleDistance : null;
+      const dvDy = sampleY ? unwrapDelta(sampleY.v - picked.v) / sampleDistance : null;
+      console.log("[raw-projector-basis]", {
+        pointerId: event.pointerId,
+        receiverId: picked.receiverId,
+        client: { x: Math.round(event.clientX), y: Math.round(event.clientY) },
+        start: formatPick(picked),
+        sampleRight: sampleX ? formatPick(sampleX) : null,
+        sampleDown: sampleY ? formatPick(sampleY) : null,
+        duDx,
+        dvDx,
+        duDy,
+        dvDy,
+      });
+    }
+
+    function formatPick(pick: ProjectedPick) {
+      return {
+        receiverId: pick.receiverId,
+        u: Number(pick.u.toFixed(4)),
+        v: Number(pick.v.toFixed(4)),
+        x: Math.round(pick.u * panelSize.width),
+        y: Math.round((1 - pick.v) * panelSize.height),
+      };
+    }
+
+    function routeProjectedEvent(event: PointerEvent, picked: ProjectedPick) {
       const hit = {
         u: picked.u,
         v: picked.v,
@@ -256,7 +304,9 @@ export function RawProjectorDemo() {
       const result = viewportRef.current?.routePointer(event, hit);
       const target = result?.target ?? result?.captured ?? null;
       setStatus(
-        `${event.type}: ${Math.round(hit.x)}, ${Math.round(hit.y)}${target ? ` -> ${describeTarget(target)}` : " -> projected panel"}`,
+        `${event.type}: ${Math.round(hit.x)}, ${Math.round(hit.y)} receiver ${picked.receiverId}${
+          target ? ` -> ${describeTarget(target)}` : " -> projected panel"
+        }`,
       );
       updateTexture();
     }
@@ -440,6 +490,7 @@ function createRawProjectorEngine(
 
   const program = createProgram(gl, vertexShader, fragmentShader);
   const pickProgram = createProgram(gl, vertexShader, pickFragmentShader);
+  const receiverPickProgram = createProgram(gl, receiverPickVertexShader, receiverPickFragmentShader);
   const mesh = createSceneMesh(gl);
   const domTexture = gl.createTexture();
   const pickTexture = gl.createTexture();
@@ -454,7 +505,11 @@ function createRawProjectorEngine(
   let yaw = 0;
   let pitch = 0;
   let hitMapVisible = true;
-  const target = [0, 0, -3] as Vec3;
+  const projectorTarget = [0, -0.1, -3.4] as Vec3;
+  const projectorEye = [0, 0.7, 6.5] as Vec3;
+  const initialViewRadius = length(subtract(projectorEye, projectorTarget));
+  let viewRadius = initialViewRadius;
+  const uvFit = { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 };
   const view = mat4();
   const projection = mat4();
   const viewProjection = mat4();
@@ -471,32 +526,61 @@ function createRawProjectorEngine(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
   function updateMatrices() {
-    const radius = 7.2;
+    const baseDirection = subtract(projectorEye, projectorTarget);
+    const normalizedBase = normalize(baseDirection);
+    const baseYaw = Math.atan2(normalizedBase[0], normalizedBase[2]);
+    const basePitch = Math.asin(normalizedBase[1]);
+    const orbitYaw = baseYaw + yaw;
+    const orbitPitch = Math.max(-1.2, Math.min(1.2, basePitch + pitch));
     const eye: Vec3 = [
-      Math.sin(yaw) * Math.cos(pitch) * radius,
-      1.3 + Math.sin(pitch) * radius,
-      3.8 + Math.cos(yaw) * Math.cos(pitch) * radius,
+      projectorTarget[0] + Math.sin(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
+      projectorTarget[1] + Math.sin(orbitPitch) * viewRadius,
+      projectorTarget[2] + Math.cos(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
     ];
-    perspective(projection, radians(45), width / height, 0.1, 80);
-    lookAt(view, eye, target, [0, 1, 0]);
+    perspective(projection, radians(34), width / height, 0.1, 80);
+    lookAt(view, eye, projectorTarget, [0, 1, 0]);
     multiply(viewProjection, projection, view);
 
-    const projectorEye: Vec3 = [0, 0.7, 6.5];
     const projectorView = mat4();
     const projectorProjection = mat4();
-    lookAt(projectorView, projectorEye, [0, -0.1, -3.4], [0, 1, 0]);
-    perspective(projectorProjection, radians(34), panelSize.width / panelSize.height, 0.1, 30);
+    lookAt(projectorView, projectorEye, projectorTarget, [0, 1, 0]);
+    perspective(projectorProjection, radians(34), width / height, 0.1, 30);
     multiply(projectorViewProjection, projectorProjection, projectorView);
+  }
+
+  function updateUvFit() {
+    const panelAspect = panelSize.width / panelSize.height;
+    const bufferAspect = width / height;
+    if (bufferAspect > panelAspect) {
+      uvFit.scaleX = panelAspect / bufferAspect;
+      uvFit.scaleY = 1;
+      uvFit.offsetX = (1 - uvFit.scaleX) / 2;
+      uvFit.offsetY = 0;
+    } else {
+      uvFit.scaleX = 1;
+      uvFit.scaleY = bufferAspect / panelAspect;
+      uvFit.offsetX = 0;
+      uvFit.offsetY = (1 - uvFit.scaleY) / 2;
+    }
   }
 
   function bindMeshAttributes(targetProgram: WebGLProgram) {
     const position = gl.getAttribLocation(targetProgram, "aPosition");
     const normal = gl.getAttribLocation(targetProgram, "aNormal");
+    const receiverId = gl.getAttribLocation(targetProgram, "aReceiverId");
     gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vertexBuffer);
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 24, 0);
-    gl.enableVertexAttribArray(normal);
-    gl.vertexAttribPointer(normal, 3, gl.FLOAT, false, 24, 12);
+    if (position >= 0) {
+      gl.enableVertexAttribArray(position);
+      gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 28, 0);
+    }
+    if (normal >= 0) {
+      gl.enableVertexAttribArray(normal);
+      gl.vertexAttribPointer(normal, 3, gl.FLOAT, false, 28, 12);
+    }
+    if (receiverId >= 0) {
+      gl.enableVertexAttribArray(receiverId);
+      gl.vertexAttribPointer(receiverId, 1, gl.FLOAT, false, 28, 24);
+    }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
   }
 
@@ -505,6 +589,10 @@ function createRawProjectorEngine(
     bindMeshAttributes(targetProgram);
     gl.uniformMatrix4fv(gl.getUniformLocation(targetProgram, "uViewProjection"), false, viewProjection);
     gl.uniformMatrix4fv(gl.getUniformLocation(targetProgram, "uProjectorViewProjection"), false, projectorViewProjection);
+    const uvFitLocation = gl.getUniformLocation(targetProgram, "uProjectorUvFit");
+    if (uvFitLocation) {
+      gl.uniform4f(uvFitLocation, uvFit.offsetX, uvFit.offsetY, uvFit.scaleX, uvFit.scaleY);
+    }
     const lightLocation = gl.getUniformLocation(targetProgram, "uLight");
     if (lightLocation) gl.uniform3fv(lightLocation, light);
     const textureLocation = gl.getUniformLocation(targetProgram, "uDomTexture");
@@ -537,9 +625,9 @@ function createRawProjectorEngine(
     render() {
       updateMatrices();
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, width, height);
       gl.clearColor(0.94, 0.94, 0.92, 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.viewport(0, 0, width, height);
       draw(program, false);
     },
     resize() {
@@ -549,6 +637,7 @@ function createRawProjectorEngine(
       height = Math.max(1, Math.round(rect.height * dpr));
       canvas.width = width;
       canvas.height = height;
+      updateUvFit();
       resizePickTarget();
     },
     uploadDomTexture() {
@@ -593,13 +682,25 @@ function createRawProjectorEngine(
       const y = Math.min(height - 1, Math.max(0, Math.floor((1 - (clientY - rect.top) / rect.height) * height)));
       const pixel = new Uint8Array(4);
       gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      draw(receiverPickProgram, true);
+      const receiverPixel = new Uint8Array(4);
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, receiverPixel);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) return null;
-      return { u: decode16(pixel[0], pixel[1]), v: decode16(pixel[2], pixel[3]) };
+      return {
+        u: decode16(pixel[0], pixel[1]),
+        v: decode16(pixel[2], pixel[3]),
+        receiverId: receiverPixel[0],
+      };
     },
     orbit(dx, dy) {
       yaw += dx * 0.006;
       pitch = Math.max(-0.7, Math.min(0.75, pitch + dy * 0.006));
+    },
+    zoom(deltaY) {
+      const scale = Math.exp(deltaY * 0.0012);
+      viewRadius = Math.max(2.2, Math.min(24, viewRadius * scale));
     },
     setHitMapVisible(visible) {
       hitMapVisible = visible;
@@ -607,6 +708,7 @@ function createRawProjectorEngine(
     dispose() {
       gl.deleteProgram(program);
       gl.deleteProgram(pickProgram);
+      gl.deleteProgram(receiverPickProgram);
       gl.deleteBuffer(mesh.vertexBuffer);
       gl.deleteBuffer(mesh.indexBuffer);
       gl.deleteTexture(domTexture);
@@ -639,12 +741,17 @@ precision mediump float;
 uniform sampler2D uDomTexture;
 uniform vec3 uLight;
 uniform float uShowHitMap;
+uniform vec4 uProjectorUvFit;
 varying vec3 vNormal;
 varying vec4 vProjected;
 void main() {
   vec3 ndc = vProjected.xyz / vProjected.w;
-  vec2 uv = ndc.xy * 0.5 + 0.5;
-  float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0) * step(-1.0, ndc.z) * step(ndc.z, 1.0);
+  vec2 rawUv = ndc.xy * 0.5 + 0.5;
+  vec2 uv = (rawUv - uProjectorUvFit.xy) / uProjectorUvFit.zw;
+  float insideRaw =
+    step(uProjectorUvFit.x, rawUv.x) * step(rawUv.x, uProjectorUvFit.x + uProjectorUvFit.z) *
+    step(uProjectorUvFit.y, rawUv.y) * step(rawUv.y, uProjectorUvFit.y + uProjectorUvFit.w);
+  float inside = insideRaw * step(-1.0, ndc.z) * step(ndc.z, 1.0);
   vec3 base = vec3(0.88) * (0.55 + max(dot(normalize(vNormal), uLight), 0.0) * 0.45);
   vec4 projected = texture2D(uDomTexture, uv);
   vec3 color = mix(base, projected.rgb, projected.a * inside);
@@ -657,6 +764,7 @@ void main() {
 
 const pickFragmentShader = `
 precision mediump float;
+uniform vec4 uProjectorUvFit;
 varying vec4 vProjected;
 vec2 encode16(float value) {
   float encodedValue = floor(clamp(value, 0.0, 1.0) * 65534.0) + 1.0;
@@ -664,12 +772,38 @@ vec2 encode16(float value) {
 }
 void main() {
   vec3 ndc = vProjected.xyz / vProjected.w;
-  vec2 uv = ndc.xy * 0.5 + 0.5;
-  bool inside = uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z >= -1.0 && ndc.z <= 1.0;
+  vec2 rawUv = ndc.xy * 0.5 + 0.5;
+  vec2 uv = (rawUv - uProjectorUvFit.xy) / uProjectorUvFit.zw;
+  bool inside =
+    rawUv.x >= uProjectorUvFit.x &&
+    rawUv.x <= uProjectorUvFit.x + uProjectorUvFit.z &&
+    rawUv.y >= uProjectorUvFit.y &&
+    rawUv.y <= uProjectorUvFit.y + uProjectorUvFit.w &&
+    ndc.z >= -1.0 &&
+    ndc.z <= 1.0;
   if (!inside) discard;
   vec2 encodedU = encode16(uv.x);
   vec2 encodedV = encode16(uv.y);
   gl_FragColor = vec4(encodedU.x, encodedU.y, encodedV.x, encodedV.y);
+}
+`;
+
+const receiverPickVertexShader = `
+attribute vec3 aPosition;
+attribute float aReceiverId;
+uniform mat4 uViewProjection;
+varying float vReceiverId;
+void main() {
+  vReceiverId = aReceiverId;
+  gl_Position = uViewProjection * vec4(aPosition, 1.0);
+}
+`;
+
+const receiverPickFragmentShader = `
+precision mediump float;
+varying float vReceiverId;
+void main() {
+  gl_FragColor = vec4(vReceiverId / 255.0, 0.0, 0.0, 1.0);
 }
 `;
 
@@ -703,11 +837,11 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string) 
 function createSceneMesh(gl: WebGLRenderingContext) {
   const vertices: number[] = [];
   const indices: number[] = [];
-  addPlane(vertices, indices, [-5.4, 2.85, -4.2], [5.4, 2.85, -4.2], [5.4, -2.85, -4.2], [-5.4, -2.85, -4.2]);
-  addPlane(vertices, indices, [-5.4, -2.85, -4.2], [5.4, -2.85, -4.2], [5.4, -2.85, 2.6], [-5.4, -2.85, 2.6]);
-  addBox(vertices, indices, [-2.2, -1.35, -2.55], [1.35, 0.82, 1.15]);
-  addBox(vertices, indices, [2.15, -0.7, -2.9], [1.25, 1.95, 1.1]);
-  addBox(vertices, indices, [0.0, 0.95, -3.35], [1.25, 1.0, 1.15]);
+  addPlane(vertices, indices, [-5.4, 2.85, -4.2], [5.4, 2.85, -4.2], [5.4, -2.85, -4.2], [-5.4, -2.85, -4.2], 1);
+  addPlane(vertices, indices, [-5.4, -2.85, -4.2], [5.4, -2.85, -4.2], [5.4, -2.85, 2.6], [-5.4, -2.85, 2.6], 2);
+  addBox(vertices, indices, [-2.2, -1.35, -2.55], [1.35, 0.82, 1.15], 10);
+  addBox(vertices, indices, [2.15, -0.7, -2.9], [1.25, 1.95, 1.1], 20);
+  addBox(vertices, indices, [0.0, 0.95, -3.35], [1.25, 1.0, 1.15], 30);
 
   const vertexBuffer = gl.createBuffer();
   const indexBuffer = gl.createBuffer();
@@ -719,14 +853,14 @@ function createSceneMesh(gl: WebGLRenderingContext) {
   return { vertexBuffer, indexBuffer, indexCount: indices.length };
 }
 
-function addPlane(vertices: number[], indices: number[], a: Vec3, b: Vec3, c: Vec3, d: Vec3) {
+function addPlane(vertices: number[], indices: number[], a: Vec3, b: Vec3, c: Vec3, d: Vec3, receiverId: number) {
   const normal = normalize(cross(subtract(b, a), subtract(c, a)));
-  const start = vertices.length / 6;
-  for (const point of [a, b, c, d]) vertices.push(...point, ...normal);
+  const start = vertices.length / 7;
+  for (const point of [a, b, c, d]) vertices.push(...point, ...normal, receiverId);
   indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
 }
 
-function addBox(vertices: number[], indices: number[], center: Vec3, size: Vec3) {
+function addBox(vertices: number[], indices: number[], center: Vec3, size: Vec3, receiverId: number) {
   const [x, y, z] = center;
   const [w, h, d] = size.map((value) => value / 2) as Vec3;
   const p = {
@@ -739,12 +873,12 @@ function addBox(vertices: number[], indices: number[], center: Vec3, size: Vec3)
     rtb: [x + w, y + h, z - d] as Vec3,
     ltb: [x - w, y + h, z - d] as Vec3,
   };
-  addPlane(vertices, indices, p.lbf, p.rbf, p.rtf, p.ltf);
-  addPlane(vertices, indices, p.rbf, p.rbb, p.rtb, p.rtf);
-  addPlane(vertices, indices, p.rbb, p.lbb, p.ltb, p.rtb);
-  addPlane(vertices, indices, p.lbb, p.lbf, p.ltf, p.ltb);
-  addPlane(vertices, indices, p.ltf, p.rtf, p.rtb, p.ltb);
-  addPlane(vertices, indices, p.lbb, p.rbb, p.rbf, p.lbf);
+  addPlane(vertices, indices, p.lbf, p.rbf, p.rtf, p.ltf, receiverId);
+  addPlane(vertices, indices, p.rbf, p.rbb, p.rtb, p.rtf, receiverId);
+  addPlane(vertices, indices, p.rbb, p.lbb, p.ltb, p.rtb, receiverId);
+  addPlane(vertices, indices, p.lbb, p.lbf, p.ltf, p.ltb, receiverId);
+  addPlane(vertices, indices, p.ltf, p.rtf, p.rtb, p.ltb, receiverId);
+  addPlane(vertices, indices, p.lbb, p.rbb, p.rbf, p.lbf, receiverId);
 }
 
 type Vec3 = [number, number, number];
@@ -820,9 +954,19 @@ function dot(a: Vec3, b: Vec3) {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
+function length(a: Vec3) {
+  return Math.hypot(a[0], a[1], a[2]) || 1;
+}
+
 function normalize(a: Vec3): Vec3 {
-  const length = Math.hypot(a[0], a[1], a[2]) || 1;
-  return [a[0] / length, a[1] / length, a[2] / length];
+  const vectorLength = length(a);
+  return [a[0] / vectorLength, a[1] / vectorLength, a[2] / vectorLength];
+}
+
+function unwrapDelta(delta: number) {
+  if (delta > 0.5) return delta - 1;
+  if (delta < -0.5) return delta + 1;
+  return delta;
 }
 
 function decode16(high: number, low: number) {

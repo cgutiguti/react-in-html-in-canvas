@@ -16,7 +16,7 @@ export type ProjectedPointerHit = {
 export type ProjectedDomViewport = {
   hitTest(hit: ProjectedPointerHit): HTMLElement | null;
   routePointer(event: PointerEvent, hit: ProjectedPointerHit): { target: HTMLElement | null; captured: HTMLElement | null };
-  routeWheel(event: WheelEvent, hit: ProjectedPointerHit): { target: HTMLElement | null };
+  routeWheel(event: WheelEvent, hit: ProjectedPointerHit): { target: HTMLElement | null; consumed: boolean };
   routePointerExit(event: PointerEvent): void;
   releasePointer(pointerId: number): void;
   getCapturedTarget(): HTMLElement | null;
@@ -189,10 +189,11 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
 
   function routeWheel(event: WheelEvent, hit: ProjectedPointerHit) {
     const target = hitTest(hit);
+    let consumed = false;
     if (target) {
-      dispatchWheelEvent(target, event, panel, hit.x, hit.y);
+      consumed = dispatchWheelEvent(target, event, panel, hit.x, hit.y);
     }
-    return { target };
+    return { target, consumed };
   }
 
   function routePointerExit(event: PointerEvent) {
@@ -313,11 +314,11 @@ function dispatchWheelEvent(
   panel: HTMLElement,
   panelX: number,
   panelY: number,
-) {
+): boolean {
   const panelRect = panel.getBoundingClientRect();
   const clientX = panelRect.left + panelX;
   const clientY = panelRect.top + panelY;
-  target.dispatchEvent(new WheelEvent("wheel", {
+  const wheelEvent = new WheelEvent("wheel", {
     bubbles: true,
     cancelable: true,
     composed: true,
@@ -333,7 +334,8 @@ function dispatchWheelEvent(
     altKey: source.altKey,
     shiftKey: source.shiftKey,
     metaKey: source.metaKey,
-  }));
+  });
+  return !target.dispatchEvent(wheelEvent);
 }
 
 function isTextControl(target: HTMLElement): target is HTMLInputElement | HTMLTextAreaElement {
