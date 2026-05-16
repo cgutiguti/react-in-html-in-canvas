@@ -1,8 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Box, Crosshair, RotateCcw } from "lucide-react";
+import { ArrowLeft, Crosshair } from "lucide-react";
 import { Button } from "../components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/card";
-import { Slider } from "../components/slider";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
@@ -38,51 +36,83 @@ button { appearance: none; -webkit-appearance: none; }
 .raw-projector-panel {
   width: 360px;
   height: 260px;
-  padding: 14px;
+  padding: 8px;
   color: #06111f;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: rgba(255,255,255,.92);
-  border: 1px solid rgba(15,23,42,.22);
-  border-radius: 12px;
+  background: transparent;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 66px 64px 46px 46px;
+  gap: 8px;
 }
-.raw-projector-panel h2 { margin: 0 0 5px; font-size: 20px; line-height: 1.05; }
-.raw-projector-panel p { margin: 0 0 10px; color: rgba(15,23,42,.72); font-size: 11px; font-weight: 650; }
-.raw-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
+.raw-title {
+  grid-column: 1 / 4;
+  align-self: end;
+  margin: 0;
+  color: #0f172a;
+  font-size: 42px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: .86;
+  text-transform: lowercase;
+}
+.raw-caption {
+  grid-column: 1 / 4;
+  margin: -4px 0 0;
+  color: rgba(15,23,42,.62);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.05;
+}
+.raw-grid { grid-column: 1 / 4; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .raw-grid button {
-  height: 34px;
-  border-radius: 8px;
-  border: 1px solid rgba(15,23,42,.28);
-  background: rgba(248,250,252,.95);
+  height: 56px;
+  border-radius: 0;
+  border: 2px solid rgba(15,23,42,.34);
+  background: rgba(255,255,255,.42);
   color: #06111f;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 950;
+  text-transform: lowercase;
 }
 .raw-grid button[data-active="true"] { background: #06111f; color: #f8fafc; }
-.raw-field { display: grid; gap: 4px; margin-top: 9px; font-size: 10px; font-weight: 800; color: rgba(15,23,42,.75); }
+.raw-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 900;
+  color: rgba(15,23,42,.76);
+  text-transform: lowercase;
+}
 .raw-field span { display: flex; justify-content: space-between; }
 .raw-field input[type="range"], .raw-field input[type="text"] { width: 100%; }
 .raw-field input[type="text"] {
-  height: 30px;
-  border: 1px solid rgba(15,23,42,.26);
-  border-radius: 7px;
+  height: 28px;
+  border: 2px solid rgba(15,23,42,.28);
+  border-radius: 0;
   padding: 0 8px;
-  background: rgba(255,255,255,.88);
+  background: rgba(255,255,255,.5);
+  color: #06111f;
+  font-weight: 900;
 }
 .raw-drag {
+  grid-column: 2 / 4;
   position: relative;
-  height: 34px;
-  margin-top: 10px;
-  border-radius: 999px;
-  background: rgba(15,23,42,.12);
+  height: 38px;
+  margin-top: 0;
+  border: 2px solid rgba(15,23,42,.28);
+  border-radius: 0;
+  background: rgba(255,255,255,.32);
   overflow: hidden;
   touch-action: none;
 }
 .raw-drag-handle {
   position: absolute;
-  top: 4px;
+  top: 5px;
   width: 52px;
-  height: 26px;
-  border-radius: 999px;
+  height: 24px;
+  border-radius: 0;
   background: #06111f;
   color: white;
   display: grid;
@@ -109,7 +139,7 @@ export function RawProjectorDemo() {
     counter: 0,
     dragX: 46,
   });
-  const [hitboxesVisible, setHitboxesVisible] = useState(true);
+  const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [status, setStatus] = useState("raw WebGL renderer readying");
 
   useEffect(() => {
@@ -163,7 +193,6 @@ export function RawProjectorDemo() {
       const picked = engine.pick(event.clientX, event.clientY);
       if (picked) {
         routingRef.current = true;
-        logProjectedBasis(engine, event, picked);
         orbitRef.current.active = false;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -262,38 +291,6 @@ export function RawProjectorDemo() {
       setStatus(`zoom: ${event.deltaY > 0 ? "out" : "in"}`);
     };
 
-    function logProjectedBasis(engine: Engine, event: PointerEvent, picked: ProjectedPick) {
-      const sampleDistance = 8;
-      const sampleX = engine.pick(event.clientX + sampleDistance, event.clientY);
-      const sampleY = engine.pick(event.clientX, event.clientY + sampleDistance);
-      const duDx = sampleX ? unwrapDelta(sampleX.u - picked.u) / sampleDistance : null;
-      const dvDx = sampleX ? unwrapDelta(sampleX.v - picked.v) / sampleDistance : null;
-      const duDy = sampleY ? unwrapDelta(sampleY.u - picked.u) / sampleDistance : null;
-      const dvDy = sampleY ? unwrapDelta(sampleY.v - picked.v) / sampleDistance : null;
-      console.log("[raw-projector-basis]", {
-        pointerId: event.pointerId,
-        receiverId: picked.receiverId,
-        client: { x: Math.round(event.clientX), y: Math.round(event.clientY) },
-        start: formatPick(picked),
-        sampleRight: sampleX ? formatPick(sampleX) : null,
-        sampleDown: sampleY ? formatPick(sampleY) : null,
-        duDx,
-        dvDx,
-        duDy,
-        dvDy,
-      });
-    }
-
-    function formatPick(pick: ProjectedPick) {
-      return {
-        receiverId: pick.receiverId,
-        u: Number(pick.u.toFixed(4)),
-        v: Number(pick.v.toFixed(4)),
-        x: Math.round(pick.u * panelSize.width),
-        y: Math.round((1 - pick.v) * panelSize.height),
-      };
-    }
-
     function routeProjectedEvent(event: PointerEvent, picked: ProjectedPick) {
       const hit = {
         u: picked.u,
@@ -386,31 +383,9 @@ export function RawProjectorDemo() {
           </Button>
         </div>
         <h1 className="mb-2 text-2xl font-semibold">Raw projector route</h1>
-        <p>Click the projected React controls on the white wall. Drag empty space to orbit and reveal the projection on separate surfaces.</p>
+        <p>Click the projected React controls on the white objects. Drag empty space to orbit, and scroll to zoom the viewer.</p>
         <div className="mt-3 rounded-md bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100">{status}</div>
       </div>
-
-      <Card className="fixed bottom-5 right-5 z-10 w-[320px] border-slate-300 bg-white/88">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Box className="h-4 w-4" />
-            raw engine
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 text-sm text-slate-700">
-          <p>Owned WebGL texture, projection shader, orbit camera, and UV pick buffer. React stays ordinary DOM.</p>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setState({ theme: "cyan", intensity: 72, message: "normal React input", counter: 0, dragX: 46 });
-            }}
-          >
-            <RotateCcw className="h-4 w-4" />
-            reset demo state
-          </Button>
-        </CardContent>
-      </Card>
-
     </main>
   );
 }
@@ -426,10 +401,10 @@ function ProjectedPanel({
 }) {
   return (
     <div ref={panelRef} className="raw-projector-panel">
-      <h2 style={{ color: state.theme === "rose" ? "#9f1239" : state.theme === "gold" ? "#92400e" : "#155e75" }}>
-        live React control panel
+      <h2 className="raw-title" style={{ color: state.theme === "rose" ? "#9f1239" : state.theme === "gold" ? "#92400e" : "#155e75" }}>
+        projected react
       </h2>
-      <p>Buttons, range input, text input, and a React pointer-drag handle.</p>
+      <p className="raw-caption">live controls scattered across white geometry</p>
       <div className="raw-grid">
         {(["cyan", "rose", "gold"] as const).map((theme) => (
           <button
@@ -462,12 +437,16 @@ function ProjectedPanel({
           onChange={(event) => setState((current) => ({ ...current, message: event.target.value }))}
         />
       </label>
+      <label className="raw-field">
+        clicks
+        <strong>{state.counter}</strong>
+      </label>
       <div
         className="raw-drag"
         onPointerMove={(event) => {
           if (event.buttons !== 1) return;
           const rect = event.currentTarget.getBoundingClientRect();
-          const next = Math.min(286, Math.max(0, event.clientX - rect.left - 26));
+          const next = Math.min(rect.width - 52, Math.max(0, event.clientX - rect.left - 26));
           setState((current) => ({ ...current, dragX: next }));
         }}
       >
@@ -514,11 +493,11 @@ function createRawProjectorEngine(
   const projection = mat4();
   const viewProjection = mat4();
   const projectorViewProjection = mat4();
-  const light = normalize([0.4, 0.8, 0.5]);
+  const light = normalize([-0.25, 0.85, 0.46]);
 
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
-  gl.clearColor(0.94, 0.94, 0.92, 1);
+  gl.clearColor(0.97, 0.97, 0.95, 1);
   gl.bindTexture(gl.TEXTURE_2D, domTexture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -625,7 +604,7 @@ function createRawProjectorEngine(
     render() {
       updateMatrices();
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.clearColor(0.94, 0.94, 0.92, 1);
+      gl.clearColor(0.97, 0.97, 0.95, 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.viewport(0, 0, width, height);
       draw(program, false);
@@ -752,7 +731,7 @@ void main() {
     step(uProjectorUvFit.x, rawUv.x) * step(rawUv.x, uProjectorUvFit.x + uProjectorUvFit.z) *
     step(uProjectorUvFit.y, rawUv.y) * step(rawUv.y, uProjectorUvFit.y + uProjectorUvFit.w);
   float inside = insideRaw * step(-1.0, ndc.z) * step(ndc.z, 1.0);
-  vec3 base = vec3(0.88) * (0.55 + max(dot(normalize(vNormal), uLight), 0.0) * 0.45);
+  vec3 base = vec3(0.93) * (0.78 + max(dot(normalize(vNormal), uLight), 0.0) * 0.22);
   vec4 projected = texture2D(uDomTexture, uv);
   vec3 color = mix(base, projected.rgb, projected.a * inside);
   if (uShowHitMap > 0.5 && inside > 0.5 && projected.a > 0.08) {
@@ -837,11 +816,24 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string) 
 function createSceneMesh(gl: WebGLRenderingContext) {
   const vertices: number[] = [];
   const indices: number[] = [];
-  addPlane(vertices, indices, [-5.4, 2.85, -4.2], [5.4, 2.85, -4.2], [5.4, -2.85, -4.2], [-5.4, -2.85, -4.2], 1);
-  addPlane(vertices, indices, [-5.4, -2.85, -4.2], [5.4, -2.85, -4.2], [5.4, -2.85, 2.6], [-5.4, -2.85, 2.6], 2);
-  addBox(vertices, indices, [-2.2, -1.35, -2.55], [1.35, 0.82, 1.15], 10);
-  addBox(vertices, indices, [2.15, -0.7, -2.9], [1.25, 1.95, 1.1], 20);
-  addBox(vertices, indices, [0.0, 0.95, -3.35], [1.25, 1.0, 1.15], 30);
+  addPlane(vertices, indices, [-5.8, 2.95, -4.35], [5.8, 2.95, -4.35], [5.8, -2.95, -4.35], [-5.8, -2.95, -4.35], 1);
+  addPlane(vertices, indices, [-5.8, -2.95, -4.35], [5.8, -2.95, -4.35], [5.8, -2.95, 2.7], [-5.8, -2.95, 2.7], 2);
+
+  addBox(vertices, indices, [-2.6, -1.98, -2.82], [1.9, 0.48, 1.22], 10);
+  addBox(vertices, indices, [1.85, -2.04, -2.7], [1.65, 0.36, 1.65], 11);
+  addBox(vertices, indices, [0.35, -2.2, -1.75], [1.15, 0.3, 1.25], 12);
+  addBox(vertices, indices, [0.65, -1.76, -2.05], [1.0, 0.28, 1.15], 13);
+  addBox(vertices, indices, [0.95, -1.34, -2.35], [0.86, 0.26, 1.05], 14);
+
+  addCylinder(vertices, indices, [-0.95, -1.95, -2.85], 0.38, 2.25, 36, 20);
+  addCylinder(vertices, indices, [2.45, -1.7, -3.15], 0.42, 2.65, 36, 21);
+  addCylinder(vertices, indices, [-3.35, -2.05, -2.95], 0.5, 0.55, 36, 22);
+  addCylinder(vertices, indices, [3.05, -2.28, -2.05], 0.64, 0.36, 36, 23);
+
+  addBox(vertices, indices, [-1.55, 0.3, -3.55], [1.45, 0.16, 0.92], 30);
+  addBox(vertices, indices, [0.35, 0.95, -3.7], [1.1, 0.16, 0.92], 31);
+  addBox(vertices, indices, [2.35, 0.25, -3.5], [1.35, 0.16, 0.86], 32);
+  addBox(vertices, indices, [3.15, -0.55, -3.25], [0.82, 0.14, 0.7], 33);
 
   const vertexBuffer = gl.createBuffer();
   const indexBuffer = gl.createBuffer();
@@ -879,6 +871,51 @@ function addBox(vertices: number[], indices: number[], center: Vec3, size: Vec3,
   addPlane(vertices, indices, p.lbb, p.lbf, p.ltf, p.ltb, receiverId);
   addPlane(vertices, indices, p.ltf, p.rtf, p.rtb, p.ltb, receiverId);
   addPlane(vertices, indices, p.lbb, p.rbb, p.rbf, p.lbf, receiverId);
+}
+
+function addCylinder(
+  vertices: number[],
+  indices: number[],
+  center: Vec3,
+  radius: number,
+  height: number,
+  segments: number,
+  receiverId: number,
+) {
+  const [cx, cy, cz] = center;
+  const halfHeight = height / 2;
+  const sideStart = vertices.length / 7;
+  for (let index = 0; index <= segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    const x = Math.cos(angle);
+    const z = Math.sin(angle);
+    vertices.push(cx + x * radius, cy - halfHeight, cz + z * radius, x, 0, z, receiverId);
+    vertices.push(cx + x * radius, cy + halfHeight, cz + z * radius, x, 0, z, receiverId);
+  }
+  for (let index = 0; index < segments; index += 1) {
+    const base = sideStart + index * 2;
+    indices.push(base, base + 1, base + 3, base, base + 3, base + 2);
+  }
+
+  const topCenter = vertices.length / 7;
+  vertices.push(cx, cy + halfHeight, cz, 0, 1, 0, receiverId);
+  for (let index = 0; index <= segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    vertices.push(cx + Math.cos(angle) * radius, cy + halfHeight, cz + Math.sin(angle) * radius, 0, 1, 0, receiverId);
+  }
+  for (let index = 1; index <= segments; index += 1) {
+    indices.push(topCenter, topCenter + index, topCenter + index + 1);
+  }
+
+  const bottomCenter = vertices.length / 7;
+  vertices.push(cx, cy - halfHeight, cz, 0, -1, 0, receiverId);
+  for (let index = 0; index <= segments; index += 1) {
+    const angle = (index / segments) * Math.PI * 2;
+    vertices.push(cx + Math.cos(angle) * radius, cy - halfHeight, cz + Math.sin(angle) * radius, 0, -1, 0, receiverId);
+  }
+  for (let index = 1; index <= segments; index += 1) {
+    indices.push(bottomCenter, bottomCenter + index + 1, bottomCenter + index);
+  }
 }
 
 type Vec3 = [number, number, number];
@@ -961,12 +998,6 @@ function length(a: Vec3) {
 function normalize(a: Vec3): Vec3 {
   const vectorLength = length(a);
   return [a[0] / vectorLength, a[1] / vectorLength, a[2] / vectorLength];
-}
-
-function unwrapDelta(delta: number) {
-  if (delta > 0.5) return delta - 1;
-  if (delta < -0.5) return delta + 1;
-  return delta;
 }
 
 function decode16(high: number, low: number) {
