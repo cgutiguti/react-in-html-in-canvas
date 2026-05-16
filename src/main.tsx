@@ -19,6 +19,7 @@ import {
 import { createProjectionScene } from "./projection/scene";
 import { createSpherePanelSurface } from "./projection/sphereSurface";
 import type { ProjectionScene } from "./projection/types";
+import { RawProjectorDemo } from "./routes/RawProjectorDemo";
 import { ThreeProjectorDemo } from "./routes/ThreeProjectorDemo";
 import "./styles.css";
 
@@ -833,16 +834,28 @@ function App() {
             />
           </div>
           <div className="pointer-events-auto mt-3">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                window.history.pushState({}, "", "/three-projector");
-                window.dispatchEvent(new PopStateEvent("popstate"));
-              }}
-            >
-              <Palette className="h-4 w-4" />
-              Three projector route
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  window.history.pushState({}, "", "/three-projector");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }}
+              >
+                <Palette className="h-4 w-4" />
+                Three projector route
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  window.history.pushState({}, "", "/raw-projector");
+                  window.dispatchEvent(new PopStateEvent("popstate"));
+                }}
+              >
+                <Palette className="h-4 w-4" />
+                Raw projector route
+              </Button>
+            </div>
           </div>
         </div>
       </section>
@@ -861,6 +874,10 @@ function Root() {
 
   if (path === "/three-projector") {
     return <ThreeProjectorDemo />;
+  }
+
+  if (path === "/raw-projector") {
+    return <RawProjectorDemo />;
   }
 
   return <App />;

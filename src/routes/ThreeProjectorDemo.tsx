@@ -7,7 +7,7 @@ import { ArrowLeft, Palette, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "../components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/card";
 import { Slider } from "../components/slider";
-import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
+import { ElementToThreeTexture } from "../projection/elementToThreeTexture";
 import {
   describeTarget,
   getLocalRect,
@@ -73,33 +73,24 @@ button { appearance: none; -webkit-appearance: none; padding: 0; }
 .projected-three-slider { display: grid; gap: 3px; margin-top: 9px; font-size: 8px; font-weight: 800; color: rgba(15, 23, 42, .82); }
 .projected-three-slider span { display: flex; justify-content: space-between; }
 .projected-three-slider input { width: 100%; accent-color: #06b6d4; }
-.show-projected-hitboxes .projected-three-actions button {
-  border: 2px solid rgba(250, 204, 21, 1);
-  background: rgba(250, 204, 21, .34);
-  box-shadow: 0 0 10px rgba(250, 204, 21, .95);
-}
-.show-projected-hitboxes .projected-three-slider input {
-  outline: 2px solid rgba(250, 204, 21, 1);
-  box-shadow: 0 0 10px rgba(250, 204, 21, .95);
-}
 .projected-dom-interaction-root {
   position: fixed;
   left: 0;
   top: 0;
   width: 260px;
   height: 190px;
-  z-index: 2147483647;
-  opacity: 0.001;
   pointer-events: none;
   overflow: hidden;
+  opacity: 0.001;
+  z-index: -1;
 }
 `;
 
 export function ThreeProjectorDemo() {
-  const mountRef = useRef<HTMLDivElement | null>(null);
+  const threeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const textureSourceRef = useRef<HTMLDivElement | null>(null);
   const controlsRef = useRef<{
-    htmlTexture?: HtmlToCanvasTexture;
+    htmlTexture?: ElementToThreeTexture;
     domViewport?: ProjectedDomViewport;
     projector?: ReturnType<typeof createThreeHtmlProjector>;
     meshMaterials: THREE.Material[];
@@ -114,25 +105,29 @@ export function ThreeProjectorDemo() {
   const [loadStatus, setLoadStatus] = useState("loading GLB");
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [routerStatus, setRouterStatus] = useState("no projected hit yet");
+  const lastLayoutLogRef = useRef("");
 
   useEffect(() => {
-    const mount = mountRef.current;
+    const canvas = threeCanvasRef.current;
     const textureSource = textureSourceRef.current;
-    if (!mount || !textureSource) return;
+    if (!canvas || !textureSource) return;
+    console.log("[three-projector-route] mounted diagnostics build", {
+      projectedTextureSize,
+      panelControls: getProjectedControls(textureSource).length,
+    });
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    mount.appendChild(renderer.domElement);
     controlsRef.current.renderer = renderer;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0xffffff);
 
-    const camera = new THREE.PerspectiveCamera(cameraFov, mount.clientWidth / mount.clientHeight, 1, 100);
+    const camera = new THREE.PerspectiveCamera(cameraFov, canvas.clientWidth / canvas.clientHeight, 1, 100);
     camera.position.copy(restPosition);
     camera.lookAt(lookTarget);
     controlsRef.current.renderCamera = camera;
@@ -159,11 +154,11 @@ export function ThreeProjectorDemo() {
     fill.position.set(-6, 5, -4);
     scene.add(fill);
 
-    const htmlTexture = new HtmlToCanvasTexture(textureSource, { ...projectedTextureSize, pixelRatio: 2 });
+    const htmlTexture = new ElementToThreeTexture(textureSource, { ...projectedTextureSize, pixelRatio: 2 });
     controlsRef.current.htmlTexture = htmlTexture;
     controlsRef.current.domViewport = createProjectedDomViewport(textureSource);
 
-    const projectorCamera = new THREE.PerspectiveCamera(cameraFov, mount.clientWidth / mount.clientHeight, 1, 100);
+    const projectorCamera = new THREE.PerspectiveCamera(cameraFov, canvas.clientWidth / canvas.clientHeight, 1, 100);
     projectorCamera.position.copy(restPosition);
     projectorCamera.lookAt(lookTarget);
     projectorCamera.updateMatrixWorld();
@@ -242,9 +237,9 @@ export function ThreeProjectorDemo() {
     animate();
 
     const onResize = () => {
-      const width = mount.clientWidth;
-      const height = mount.clientHeight;
-      renderer.setSize(width, height);
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      renderer.setSize(width, height, false);
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       projectorCamera.aspect = width / height;
@@ -262,7 +257,7 @@ export function ThreeProjectorDemo() {
       const picked = pickBuffer.pick(event.clientX, event.clientY);
       if (!picked) {
         if (event.type !== "pointermove") {
-          console.debug("[projected-pick-miss]", {
+          console.log("[projected-pick-miss]", {
             type: event.type,
             pick: pickBuffer.getLastDebug(),
           });
@@ -282,6 +277,8 @@ export function ThreeProjectorDemo() {
         }
         return;
       }
+      event.preventDefault();
+      event.stopImmediatePropagation();
       const hit = {
         x: picked.u * projectedTextureSize.width,
         y: (1 - picked.v) * projectedTextureSize.height,
@@ -295,7 +292,7 @@ export function ThreeProjectorDemo() {
       const captured = viewportResult.captured;
       const domDebug = controlsRef.current.domViewport?.getLastDebug();
       if (event.type !== "pointermove" || target || captured) {
-        console.debug("[projected-dom-route]", {
+        console.log("[projected-dom-route]", {
           type: event.type,
           hit,
           target: target ? describeTarget(target) : "",
@@ -327,7 +324,6 @@ export function ThreeProjectorDemo() {
 
       if ((event.type === "pointerdown" || event.type === "pointermove" || event.type === "pointerup") && (target || captured)) {
         void updateProjectedTextures();
-        event.preventDefault();
         if (event.type === "pointerdown") {
           rendererElement.setPointerCapture?.(event.pointerId);
         }
@@ -342,22 +338,21 @@ export function ThreeProjectorDemo() {
       }
     };
 
-    renderer.domElement.addEventListener("pointermove", routeProjectedPointer);
-    renderer.domElement.addEventListener("pointerdown", routeProjectedPointer);
-    renderer.domElement.addEventListener("pointerup", routeProjectedPointer);
+    renderer.domElement.addEventListener("pointermove", routeProjectedPointer, true);
+    renderer.domElement.addEventListener("pointerdown", routeProjectedPointer, true);
+    renderer.domElement.addEventListener("pointerup", routeProjectedPointer, true);
 
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", onResize);
-      renderer.domElement.removeEventListener("pointermove", routeProjectedPointer);
-      renderer.domElement.removeEventListener("pointerdown", routeProjectedPointer);
-      renderer.domElement.removeEventListener("pointerup", routeProjectedPointer);
+      renderer.domElement.removeEventListener("pointermove", routeProjectedPointer, true);
+      renderer.domElement.removeEventListener("pointerdown", routeProjectedPointer, true);
+      renderer.domElement.removeEventListener("pointerup", routeProjectedPointer, true);
       orbit.dispose();
       dracoLoader.dispose();
       htmlTexture.dispose();
       controlsRef.current.pickBuffer?.dispose();
       renderer.dispose();
-      mount.removeChild(renderer.domElement);
     };
   }, []);
 
@@ -374,7 +369,8 @@ export function ThreeProjectorDemo() {
   }, [hitboxesVisible]);
 
   async function updateProjectedTextures() {
-    await controlsRef.current.htmlTexture?.update(textureCss);
+    await controlsRef.current.htmlTexture?.update(textureCss, controlsRef.current.renderer);
+    logProjectionLayout("texture-update");
   }
 
   function applyThreeState(next: ThreeControlState) {
@@ -412,6 +408,65 @@ export function ThreeProjectorDemo() {
     });
     projector.uniforms.hitboxCount.value = rects.length;
     projector.uniforms.hitboxOpacity.value = visible ? 0.82 : 0;
+    logProjectionLayout("hitbox-uniforms");
+  }
+
+  function logProjectionLayout(reason: string) {
+    const panel = textureSourceRef.current;
+    const texture = controlsRef.current.htmlTexture;
+    if (!panel || !texture) return;
+
+    const panelRect = panel.getBoundingClientRect();
+    const controls = getProjectedControls(panel);
+    const controlRects = controls.map((control, index) => {
+      const rect = control.getBoundingClientRect();
+      const local = {
+        left: rect.left - panelRect.left,
+        top: rect.top - panelRect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+      return {
+        index,
+        tag: control.tagName.toLowerCase(),
+        text: control.textContent?.trim() || control.getAttribute("aria-label") || "",
+        local,
+        uv: {
+          left: local.left / projectedTextureSize.width,
+          right: (local.left + local.width) / projectedTextureSize.width,
+          bottom: 1 - (local.top + local.height) / projectedTextureSize.height,
+          top: 1 - local.top / projectedTextureSize.height,
+        },
+      };
+    });
+
+    const signature = JSON.stringify({
+      panel: {
+        width: panelRect.width,
+        height: panelRect.height,
+      },
+      controls: controlRects.map((control) => control.local),
+      texture: texture.getSize(),
+      textureStatus: texture.getStatus(),
+    });
+    if (signature === lastLayoutLogRef.current && reason !== "hitbox-uniforms") return;
+    lastLayoutLogRef.current = signature;
+
+    console.log("[projected-layout-diagnostic]", {
+      reason,
+      panelRect: {
+        left: panelRect.left,
+        top: panelRect.top,
+        width: panelRect.width,
+        height: panelRect.height,
+      },
+      expectedTextureCssSize: projectedTextureSize,
+      texture: texture.getSize(),
+      textureStatus: texture.getStatus(),
+      devicePixelRatio: window.devicePixelRatio,
+      controls: controlRects,
+      note: "These are live DOM/browser layout rects. Compare against the visible foreignObject texture if the projected React appears offset.",
+    });
   }
 
   const accentColor = state.projection === "magenta" ? "#86198f" : state.projection === "gold" ? "#92400e" : "#155e75";
@@ -420,7 +475,67 @@ export function ThreeProjectorDemo() {
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <style>{textureCss}</style>
-      <div ref={mountRef} className="fixed inset-0" />
+      <canvas
+        ref={threeCanvasRef}
+        className="fixed inset-0 h-full w-full"
+        aria-label="Three.js projected DOM scene"
+      />
+
+      <div className="projected-dom-interaction-root" aria-hidden="true">
+        <div
+          ref={textureSourceRef}
+          className="projected-three-card"
+        >
+          <h2 style={{ color: accentColor, textShadow: accentShadow }}>react projector</h2>
+          <p>Projected from a live React component onto the GLTF scene.</p>
+          <div className="projected-three-grid">
+            <div className="projected-three-cell">
+              <div className="projected-three-label">material</div>
+              <div className="projected-three-value">{state.material}</div>
+            </div>
+            <div className="projected-three-cell">
+              <div className="projected-three-label">opacity</div>
+              <div className="projected-three-value">{state.opacity}</div>
+            </div>
+            <div className="projected-three-cell">
+              <div className="projected-three-label">theme</div>
+              <div className="projected-three-value">{state.projection}</div>
+            </div>
+          </div>
+          <div className="projected-three-actions">
+            {(["pearl", "carbon", "glass"] as const).map((material) => (
+              <button
+                key={material}
+                type="button"
+                onClick={() => setState((current) => ({ ...current, material }))}
+              >
+                {material}
+              </button>
+            ))}
+            {(["cyan", "magenta", "gold"] as const).map((projection) => (
+              <button
+                key={projection}
+                type="button"
+                onClick={() => setState((current) => ({ ...current, projection }))}
+              >
+                {projection}
+              </button>
+            ))}
+          </div>
+          <label className="projected-three-slider">
+            <span>
+              opacity <strong>{state.opacity}</strong>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={state.opacity}
+              onChange={(event) => setState((current) => ({ ...current, opacity: Number(event.target.value) }))}
+            />
+          </label>
+        </div>
+      </div>
 
       <div className="pointer-events-none fixed left-6 top-6 z-10 max-w-[480px] text-sm text-slate-700">
         <div className="pointer-events-auto mb-4">
@@ -516,61 +631,6 @@ export function ThreeProjectorDemo() {
         </CardContent>
       </Card>
 
-      <div className="projected-dom-interaction-root">
-        <div
-          ref={textureSourceRef}
-          className={`projected-three-card ${hitboxesVisible ? "show-projected-hitboxes" : ""}`}
-        >
-          <h2 style={{ color: accentColor, textShadow: accentShadow }}>react projector</h2>
-          <p>Projected from a live React component onto the GLTF scene.</p>
-          <div className="projected-three-grid">
-            <div className="projected-three-cell">
-              <div className="projected-three-label">material</div>
-              <div className="projected-three-value">{state.material}</div>
-            </div>
-            <div className="projected-three-cell">
-              <div className="projected-three-label">opacity</div>
-              <div className="projected-three-value">{state.opacity}</div>
-            </div>
-            <div className="projected-three-cell">
-              <div className="projected-three-label">theme</div>
-              <div className="projected-three-value">{state.projection}</div>
-            </div>
-          </div>
-          <div className="projected-three-actions">
-            {(["pearl", "carbon", "glass"] as const).map((material) => (
-              <button
-                key={material}
-                type="button"
-                onClick={() => setState((current) => ({ ...current, material }))}
-              >
-                {material}
-              </button>
-            ))}
-            {(["cyan", "magenta", "gold"] as const).map((projection) => (
-              <button
-                key={projection}
-                type="button"
-                onClick={() => setState((current) => ({ ...current, projection }))}
-              >
-                {projection}
-              </button>
-            ))}
-          </div>
-          <label className="projected-three-slider">
-            <span>
-              opacity <strong>{state.opacity}</strong>
-            </span>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={state.opacity}
-              onChange={(event) => setState((current) => ({ ...current, opacity: Number(event.target.value) }))}
-            />
-          </label>
-        </div>
-      </div>
     </main>
   );
 }

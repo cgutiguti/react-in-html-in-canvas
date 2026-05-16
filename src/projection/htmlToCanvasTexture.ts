@@ -28,6 +28,16 @@ export class HtmlToCanvasTexture {
     this.options.height = height;
   }
 
+  getSize() {
+    return {
+      cssWidth: this.options.width,
+      cssHeight: this.options.height,
+      canvasWidth: this.canvas.width,
+      canvasHeight: this.canvas.height,
+      pixelRatio: this.options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, 2),
+    };
+  }
+
   async update(css = "") {
     if (this.rendering) {
       this.pending = true;
