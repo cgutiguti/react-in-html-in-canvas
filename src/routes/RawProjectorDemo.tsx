@@ -7,14 +7,9 @@ import { Button } from "../components/button";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
-
-type PanelState = {
-  theme: "cyan" | "rose" | "gold";
-  intensity: number;
-  message: string;
-  counter: number;
-  dragX: number;
-};
+import { RootComponents } from "../shadcn-demo/components";
+import { ShadcnPortalProvider } from "../shadcn-demo/portal";
+import { TooltipProvider } from "../shadcn-demo/ui/tooltip";
 
 type LightingSettings = {
   ambient: number;
@@ -43,12 +38,25 @@ type Engine = {
   pick(clientX: number, clientY: number): { u: number; v: number; receiverId: number } | null;
   orbit(dx: number, dy: number): void;
   zoom(deltaY: number): void;
+  snapView(direction: Vec3): void;
+  resetView(): void;
+  getViewState(): ViewState;
   setSceneMesh(sceneMesh: SceneMeshData): void;
   setHitMapVisible(visible: boolean): void;
   setLighting(settings: LightingSettings): void;
 };
 
-const panelSize = { width: 360, height: 260 };
+type ViewState = {
+  yaw: number;
+  pitch: number;
+  radius: number;
+  right: Vec3;
+  up: Vec3;
+  forward: Vec3;
+};
+
+const panelSize = { width: 1400, height: 875 };
+const projectorFov = 18;
 const initialLighting: LightingSettings = {
   ambient: 0.819,
   leftDiffuse: 0.12,
@@ -72,96 +80,61 @@ type SceneMeshData = { vertices: Float32Array; indices: Uint16Array | Uint32Arra
 const panelCss = `
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, input { font: inherit; margin: 0; }
+button, input, textarea, select { font: inherit; margin: 0; }
 button { appearance: none; -webkit-appearance: none; }
 .raw-projector-panel {
-  width: 360px;
-  height: 260px;
-  padding: 8px;
-  color: #06111f;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: transparent;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  grid-template-rows: 66px 64px 46px 46px;
-  gap: 8px;
-}
-.raw-title {
-  grid-column: 1 / 4;
-  align-self: end;
-  margin: 0;
-  color: #0f172a;
-  font-size: 42px;
-  font-weight: 950;
-  letter-spacing: 0;
-  line-height: .86;
-  text-transform: lowercase;
-}
-.raw-caption {
-  grid-column: 1 / 4;
-  margin: -4px 0 0;
-  color: rgba(15,23,42,.62);
-  font-size: 13px;
-  font-weight: 850;
-  line-height: 1.05;
-}
-.raw-grid { grid-column: 1 / 4; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.raw-grid button {
-  height: 56px;
-  border-radius: 0;
-  border: 2px solid rgba(15,23,42,.34);
-  background: rgba(255,255,255,.42);
-  color: #06111f;
-  font-size: 18px;
-  font-weight: 950;
-  text-transform: lowercase;
-}
-.raw-grid button[data-active="true"] { background: #06111f; color: #f8fafc; }
-.raw-field {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(15,23,42,.76);
-  text-transform: lowercase;
-}
-.raw-field span { display: flex; justify-content: space-between; }
-.raw-field input[type="range"], .raw-field input[type="text"] { width: 100%; }
-.raw-field input[type="text"] {
-  height: 28px;
-  border: 2px solid rgba(15,23,42,.28);
-  border-radius: 0;
-  padding: 0 8px;
-  background: rgba(255,255,255,.5);
-  color: #06111f;
-  font-weight: 900;
-}
-.raw-drag {
-  grid-column: 2 / 4;
-  position: relative;
-  height: 38px;
-  margin-top: 0;
-  border: 2px solid rgba(15,23,42,.28);
-  border-radius: 0;
-  background: rgba(255,255,255,.32);
+  width: 1400px;
+  height: 875px;
+  padding: 0;
+  color: #09090b;
+  font-family: "Inter", "Geist", "SF Pro Display", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #ffffff;
+  font-size: 14px;
+  line-height: 1.35;
   overflow: hidden;
-  touch-action: none;
 }
-.raw-drag-handle {
+.shadcn-topbar {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 23px;
+  padding: 0 20px;
+  color: #18181b;
+  font-weight: 600;
+}
+.shadcn-mark { width: 18px; height: 26px; position: relative; }
+.shadcn-mark:before, .shadcn-mark:after {
+  content: "";
   position: absolute;
-  top: 5px;
-  width: 52px;
-  height: 24px;
-  border-radius: 0;
-  background: #06111f;
-  color: white;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  font-weight: 900;
-  user-select: none;
+  width: 4px;
+  height: 20px;
+  border-radius: 999px;
+  background: #09090b;
+  transform: rotate(38deg);
 }
+.shadcn-mark:before { left: 3px; top: 4px; }
+.shadcn-mark:after { left: 11px; top: -1px; }
+.shadcn-nav { display: flex; gap: 24px; align-items: center; font-size: 15px; }
+.shadcn-search {
+  margin-left: auto;
+  width: 214px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid #d4d4d8;
+  background: #fafafa;
+  color: #71717a;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+.shadcn-mini { display: flex; gap: 14px; align-items: center; color: #52525b; }
+.shadcn-new { height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid #d4d4d8; background: #f4f4f5; color: #18181b; font-weight: 700; }
+.shadcn-stage {
+  width: 1240px;
+  margin: 52px auto 0;
+  display: block;
+}
+.footer { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: #71717a; }
 `;
 
 export function RawProjectorDemo() {
@@ -173,16 +146,11 @@ export function RawProjectorDemo() {
   const engineRef = useRef<Engine | null>(null);
   const routingRef = useRef(false);
   const orbitRef = useRef<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 });
-  const [state, setState] = useState<PanelState>({
-    theme: "cyan",
-    intensity: 72,
-    message: "normal React input",
-    counter: 0,
-    dragX: 46,
-  });
   const [lighting, setLighting] = useState<LightingSettings>(initialLighting);
+  const [debugVisible, setDebugVisible] = useState(false);
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [status, setStatus] = useState("raw WebGL renderer readying");
+  const [viewState, setViewState] = useState<ViewState | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -197,6 +165,7 @@ export function RawProjectorDemo() {
     canvas.layoutSubtree = true;
     const engine = createRawProjectorEngine(canvas, projectionSource, texture.canvas);
     engineRef.current = engine;
+    setViewState(engine.getViewState());
     let disposed = false;
 
     const updateTexture = () => {
@@ -277,6 +246,7 @@ export function RawProjectorDemo() {
         const dy = event.clientY - orbitRef.current.y;
         orbitRef.current = { active: true, x: event.clientX, y: event.clientY };
         engine.orbit(dx, dy);
+        setViewState(engine.getViewState());
       } else if (orbitRef.current.active && event.buttons === 0) {
         orbitRef.current.active = false;
       }
@@ -339,6 +309,7 @@ export function RawProjectorDemo() {
       event.stopImmediatePropagation();
       engine.zoom(event.deltaY);
       engine.render();
+      setViewState(engine.getViewState());
       setStatus(`zoom: ${event.deltaY > 0 ? "out" : "in"}`);
     };
 
@@ -384,28 +355,38 @@ export function RawProjectorDemo() {
       if (engineRef.current === engine) engineRef.current = null;
       if (viewportRef.current?.getCapturedTarget()) viewportRef.current.releasePointer(0);
       if (viewportRef.current) viewportRef.current = null;
+      setViewState(null);
     };
   }, []);
 
-  useEffect(() => {
-    const texture = textureRef.current;
+  const orbitFromGizmo = (dx: number, dy: number) => {
     const engine = engineRef.current;
-    if (!texture || !engine) return;
-    let cancelled = false;
-    void texture.update(panelCss).then(() => {
-      if (cancelled || engineRef.current !== engine) return;
-      engine.uploadDomTexture();
-      engine.render();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [state]);
+    if (!engine) return;
+    engine.orbit(dx, dy);
+    engine.render();
+    setViewState(engine.getViewState());
+  };
+
+  const snapView = (direction: Vec3) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.snapView(direction);
+    engine.render();
+    setViewState(engine.getViewState());
+  };
+
+  const resetView = () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.resetView();
+    engine.render();
+    setViewState(engine.getViewState());
+  };
 
   useEffect(() => {
-    engineRef.current?.setHitMapVisible(hitboxesVisible);
+    engineRef.current?.setHitMapVisible(debugVisible && hitboxesVisible);
     engineRef.current?.render();
-  }, [hitboxesVisible]);
+  }, [debugVisible, hitboxesVisible]);
 
   useEffect(() => {
     engineRef.current?.setLighting(lighting);
@@ -416,8 +397,12 @@ export function RawProjectorDemo() {
     <main className="min-h-screen bg-zinc-100 text-slate-950">
       <style>{panelCss}</style>
       <canvas ref={canvasRef} className="fixed inset-0 h-full w-full" aria-label="Raw WebGL projected DOM demo">
-        <div ref={projectionSourceRef} className="projection-source h-[260px] w-[360px] overflow-hidden">
-          <ProjectedPanel state={state} setState={setState} panelRef={panelRef} />
+        <div
+          ref={projectionSourceRef}
+          className="projection-source overflow-hidden"
+          style={{ width: panelSize.width, height: panelSize.height }}
+        >
+          <ProjectedPanel panelRef={panelRef} />
         </div>
       </canvas>
 
@@ -433,16 +418,149 @@ export function RawProjectorDemo() {
             <ArrowLeft className="h-4 w-4" />
             Three route
           </Button>
-          <Button variant="secondary" onClick={() => setHitboxesVisible((value) => !value)}>
-            <Crosshair className="h-4 w-4" />
-            {hitboxesVisible ? "hide" : "show"} projected hit map
+          <Button variant={debugVisible ? "default" : "secondary"} onClick={() => setDebugVisible((value) => !value)}>
+            debug
           </Button>
-          <div className="min-w-0 rounded-md bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100">{status}</div>
+          {debugVisible && (
+            <>
+              <Button variant="secondary" onClick={() => setHitboxesVisible((value) => !value)}>
+                <Crosshair className="h-4 w-4" />
+                {hitboxesVisible ? "hide" : "show"} projected hit map
+              </Button>
+              <div className="min-w-0 rounded-md bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100">{status}</div>
+            </>
+          )}
         </div>
       </div>
-      <LightingPanel settings={lighting} onChange={setLighting} />
+      <ViewportGizmo view={viewState} onOrbit={orbitFromGizmo} onSnap={snapView} onReset={resetView} />
+      {debugVisible && <LightingPanel settings={lighting} onChange={setLighting} />}
     </main>
   );
+}
+
+function ViewportGizmo({
+  view,
+  onOrbit,
+  onSnap,
+  onReset,
+}: {
+  view: ViewState | null;
+  onOrbit: (dx: number, dy: number) => void;
+  onSnap: (direction: Vec3) => void;
+  onReset: () => void;
+}) {
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const axes = [
+    { key: "+X", label: "X", direction: [1, 0, 0] as Vec3, color: "#ef4444" },
+    { key: "-X", label: "X", direction: [-1, 0, 0] as Vec3, color: "#ef4444", negative: true },
+    { key: "+Y", label: "Y", direction: [0, 1, 0] as Vec3, color: "#22c55e" },
+    { key: "-Y", label: "Y", direction: [0, -1, 0] as Vec3, color: "#22c55e", negative: true },
+    { key: "+Z", label: "Z", direction: [0, 0, 1] as Vec3, color: "#3b82f6" },
+    { key: "-Z", label: "Z", direction: [0, 0, -1] as Vec3, color: "#3b82f6", negative: true },
+  ];
+  const projected = axes
+    .map((axis) => ({ ...axis, point: projectGizmoAxis(axis.direction, view) }))
+    .sort((a, b) => a.point.depth - b.point.depth);
+
+  return (
+    <div
+      className="fixed right-5 top-5 z-20 h-36 w-36 select-none rounded-full bg-white/65 shadow-lg ring-1 ring-slate-900/10 backdrop-blur"
+      aria-label="Viewport orientation"
+      onPointerDown={(event) => {
+        if ((event.target as HTMLElement).closest("button")) return;
+        dragRef.current = { x: event.clientX, y: event.clientY };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        if (!dragRef.current) return;
+        const dx = event.clientX - dragRef.current.x;
+        const dy = event.clientY - dragRef.current.y;
+        dragRef.current = { x: event.clientX, y: event.clientY };
+        onOrbit(dx, dy);
+      }}
+      onPointerUp={(event) => {
+        dragRef.current = null;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }}
+      onDoubleClick={onReset}
+    >
+      <svg className="h-full w-full" viewBox="0 0 144 144" role="presentation">
+        <defs>
+          <radialGradient id="viewport-gizmo-globe" cx="36%" cy="28%" r="70%">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="72%" stopColor="#eef2f7" />
+            <stop offset="100%" stopColor="#cbd5e1" />
+          </radialGradient>
+        </defs>
+        <circle cx="72" cy="72" r="38" fill="url(#viewport-gizmo-globe)" stroke="rgba(15,23,42,.16)" />
+        <ellipse cx="72" cy="72" rx="38" ry="11" fill="none" stroke="rgba(15,23,42,.12)" />
+        <ellipse cx="72" cy="72" rx="11" ry="38" fill="none" stroke="rgba(15,23,42,.1)" />
+        {projected.map((axis) => {
+          const muted = axis.point.depth < 0;
+          return (
+            <g key={axis.key} opacity={muted ? 0.38 : 1}>
+              <line
+                x1="72"
+                y1="72"
+                x2={axis.point.x}
+                y2={axis.point.y}
+                stroke={axis.color}
+                strokeWidth={muted ? 2 : 3}
+                strokeLinecap="round"
+              />
+            </g>
+          );
+        })}
+      </svg>
+      {projected.map((axis) => (
+        <button
+          key={axis.key}
+          type="button"
+          title={`${axis.negative ? "Negative " : ""}${axis.label} view`}
+          className="absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/80 text-xs font-bold text-white shadow-md transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-slate-900/20"
+          style={{
+            left: axis.point.x,
+            top: axis.point.y,
+            backgroundColor: axis.color,
+            opacity: axis.point.depth < 0 ? 0.55 : 1,
+            zIndex: axis.point.depth < 0 ? 1 : 2,
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSnap(axis.direction);
+          }}
+        >
+          {axis.negative ? `-${axis.label}` : axis.label}
+        </button>
+      ))}
+      <button
+        type="button"
+        title="Reset view"
+        className="absolute left-1/2 top-1/2 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/10 hover:bg-white"
+        onClick={(event) => {
+          event.stopPropagation();
+          onReset();
+        }}
+      >
+        ⌂
+      </button>
+    </div>
+  );
+}
+
+function projectGizmoAxis(axis: Vec3, view: ViewState | null) {
+  if (!view) {
+    return { x: 72 + axis[0] * 44, y: 72 - axis[1] * 44, depth: axis[2] };
+  }
+  const x = dot(axis, view.right);
+  const y = -dot(axis, view.up);
+  const depth = dot(axis, view.forward);
+  const radius = 44;
+  return {
+    x: 72 + x * radius,
+    y: 72 + y * radius,
+    depth,
+  };
 }
 
 function LightingPanel({
@@ -525,73 +643,50 @@ function LightingSlider({
 }
 
 function ProjectedPanel({
-  state,
-  setState,
   panelRef,
 }: {
-  state: PanelState;
-  setState: React.Dispatch<React.SetStateAction<PanelState>>;
   panelRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
+  const setPanelNode = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      setPortalContainer(node);
+    },
+    [panelRef],
+  );
+
   return (
-    <div ref={panelRef} className="raw-projector-panel">
-      <h2 className="raw-title" style={{ color: state.theme === "rose" ? "#9f1239" : state.theme === "gold" ? "#92400e" : "#155e75" }}>
-        projected react
-      </h2>
-      <p className="raw-caption">live controls scattered across white geometry</p>
-      <div className="raw-grid">
-        {(["cyan", "rose", "gold"] as const).map((theme) => (
-          <button
-            key={theme}
-            type="button"
-            data-active={state.theme === theme}
-            onClick={() => setState((current) => ({ ...current, theme, counter: current.counter + 1 }))}
-          >
-            {theme}
-          </button>
-        ))}
-      </div>
-      <label className="raw-field">
-        <span>
-          intensity <strong>{state.intensity}</strong>
-        </span>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={state.intensity}
-          onChange={(event) => setState((current) => ({ ...current, intensity: Number(event.target.value) }))}
-        />
-      </label>
-      <label className="raw-field">
-        message
-        <input
-          type="text"
-          value={state.message}
-          onChange={(event) => setState((current) => ({ ...current, message: event.target.value }))}
-        />
-      </label>
-      <label className="raw-field">
-        clicks
-        <strong>{state.counter}</strong>
-      </label>
-      <div
-        className="raw-drag"
-        onPointerMove={(event) => {
-          if (event.buttons !== 1) return;
-          const rect = event.currentTarget.getBoundingClientRect();
-          const next = Math.min(rect.width - 52, Math.max(0, event.clientX - rect.left - 26));
-          setState((current) => ({ ...current, dragX: next }));
-        }}
-      >
-        <div className="raw-drag-handle" style={{ left: state.dragX }}>
-          drag
+    <div ref={setPanelNode} className="raw-projector-panel style-nova">
+      <header className="shadcn-topbar">
+        <div className="shadcn-mark" />
+        <nav className="shadcn-nav">
+          <span>Docs</span>
+          <span>Components</span>
+          <span>Blocks</span>
+          <span>Charts</span>
+          <span>Directory</span>
+          <span>Create</span>
+        </nav>
+        <div className="shadcn-search">Search documentation...</div>
+        <div className="shadcn-mini">
+          <span>◕ 115k</span>
+          <span>▯</span>
+          <span>◐</span>
         </div>
-      </div>
+        <button className="shadcn-new" type="button">＋ New</button>
+      </header>
+      <main className="shadcn-stage theme-container">
+        <ShadcnPortalProvider container={portalContainer}>
+          <TooltipProvider>
+            <RootComponents />
+          </TooltipProvider>
+        </ShadcnPortalProvider>
+      </main>
+      <div className="footer">Built by <strong>shadcn</strong> at <strong>Vercel</strong>. The source code is available on <strong>GitHub</strong>.</div>
     </div>
   );
 }
-
 function createRawProjectorEngine(
   canvas: HTMLCanvasElement,
   domElement: HTMLElement,
@@ -625,9 +720,14 @@ function createRawProjectorEngine(
   let pitch = 0;
   let hitMapVisible = true;
   const projectorTarget = [0.6, -2.35, -2.35] as Vec3;
-  const projectorEye = [0, 0, 15] as Vec3;
+  const projectorEye = [0.52, -2.05, 7.15] as Vec3;
+  const baseDirection = subtract(projectorEye, projectorTarget);
+  const normalizedBase = normalize(baseDirection);
+  const baseYaw = Math.atan2(normalizedBase[0], normalizedBase[2]);
+  const basePitch = Math.asin(normalizedBase[1]);
   const initialViewRadius = length(subtract(projectorEye, projectorTarget));
   let viewRadius = initialViewRadius;
+  let currentViewState: ViewState = makeViewState();
   const uvFit = { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 };
   const view = mat4();
   const projection = mat4();
@@ -657,26 +757,50 @@ function createRawProjectorEngine(
   gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, shadowDepth);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
-  function updateMatrices() {
-    const baseDirection = subtract(projectorEye, projectorTarget);
-    const normalizedBase = normalize(baseDirection);
-    const baseYaw = Math.atan2(normalizedBase[0], normalizedBase[2]);
-    const basePitch = Math.asin(normalizedBase[1]);
+  function getEye() {
     const orbitYaw = baseYaw + yaw;
-    const orbitPitch = Math.max(-1.2, Math.min(1.2, basePitch + pitch));
+    const orbitPitch = clampOrbitPitch(basePitch + pitch);
     const eye: Vec3 = [
       projectorTarget[0] + Math.sin(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
       projectorTarget[1] + Math.sin(orbitPitch) * viewRadius,
       projectorTarget[2] + Math.cos(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
     ];
-    perspective(projection, radians(45), width / height, 0.1, 100);
-    lookAt(view, eye, projectorTarget, [0, 1, 0]);
+    return { eye, orbitYaw, orbitPitch };
+  }
+
+  function makeViewState(): ViewState {
+    const { eye } = getEye();
+    const forward = normalize(subtract(projectorTarget, eye));
+    const cameraUp = getCameraUp(forward);
+    const right = normalize(cross(forward, cameraUp));
+    const up = normalize(cross(right, forward));
+    return { yaw, pitch, radius: viewRadius, right, up, forward };
+  }
+
+  function clampOrbitPitch(value: number) {
+    const limit = Math.PI / 2 - 0.001;
+    return Math.max(-limit, Math.min(limit, value));
+  }
+
+  function getCameraUp(forward: Vec3): Vec3 {
+    return Math.abs(dot(forward, [0, 1, 0])) > 0.98 ? [0, 0, -Math.sign(forward[1]) || -1] : [0, 1, 0];
+  }
+
+  function updateViewState() {
+    currentViewState = makeViewState();
+  }
+
+  function updateMatrices() {
+    const { eye } = getEye();
+    perspective(projection, radians(projectorFov), width / height, 0.05, 100);
+    lookAt(view, eye, projectorTarget, getCameraUp(normalize(subtract(projectorTarget, eye))));
     multiply(viewProjection, projection, view);
+    updateViewState();
 
     const projectorView = mat4();
     const projectorProjection = mat4();
     lookAt(projectorView, projectorEye, projectorTarget, [0, 1, 0]);
-    perspective(projectorProjection, radians(14), width / height, 1, 100);
+    perspective(projectorProjection, radians(projectorFov), width / height, 1, 100);
     multiply(projectorViewProjection, projectorProjection, projectorView);
 
     const topLight = normalize([lightingSettings.topLightX, lightingSettings.topLightY, lightingSettings.topLightZ]);
@@ -882,11 +1006,28 @@ function createRawProjectorEngine(
     },
     orbit(dx, dy) {
       yaw += dx * 0.006;
-      pitch = Math.max(-0.7, Math.min(0.75, pitch + dy * 0.006));
+      pitch = clampOrbitPitch(basePitch + pitch + dy * 0.006) - basePitch;
+      updateViewState();
     },
     zoom(deltaY) {
       const scale = Math.exp(deltaY * 0.0012);
       viewRadius = Math.max(4, Math.min(36, viewRadius * scale));
+      updateViewState();
+    },
+    snapView(direction) {
+      const normalized = normalize(direction);
+      yaw = Math.atan2(normalized[0], normalized[2]) - baseYaw;
+      pitch = clampOrbitPitch(Math.asin(normalized[1])) - basePitch;
+      updateViewState();
+    },
+    resetView() {
+      yaw = 0;
+      pitch = 0;
+      viewRadius = initialViewRadius;
+      updateViewState();
+    },
+    getViewState() {
+      return currentViewState;
     },
     setSceneMesh(sceneMesh) {
       gl.deleteBuffer(mesh.vertexBuffer);
