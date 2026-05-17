@@ -33,6 +33,7 @@ export type ProjectedDomDebug = {
   contained: boolean;
   target: string;
   controls: number;
+  projectedHover: string;
 };
 
 export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomViewport {
@@ -42,6 +43,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     activeRange: HTMLInputElement | null;
     activeText: { element: HTMLInputElement | HTMLTextAreaElement; anchor: number } | null;
     pointerCapture: Map<number, Element>;
+    projectedHoverPath: HTMLElement[];
     lastDebug: ProjectedDomDebug | null;
   } = {
     capturedTarget: null,
@@ -49,6 +51,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     activeRange: null,
     activeText: null,
     pointerCapture: new Map(),
+    projectedHoverPath: [],
     lastDebug: null,
   };
   const root = panel.parentElement;
@@ -82,6 +85,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
         contained: Boolean(element && panel.contains(element)),
         target: target ? describeElement(target) : "none",
         controls: panel.querySelectorAll("button, input, select, textarea, [role='button'], [role='switch'], [tabindex]").length,
+        projectedHover: state.projectedHoverPath.map(describeElement).join(" > "),
       };
       return target;
     } finally {
@@ -210,6 +214,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     if (target === state.hoverTarget) return;
     const previous = state.hoverTarget;
     state.hoverTarget = target;
+    setProjectedHoverPath(target);
 
     if (previous) {
       dispatchProjectedPointerEventAt(previous, "pointerout", event, panel, hit?.x ?? 0, hit?.y ?? 0, true, target);
@@ -236,6 +241,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       state.activeRange = null;
       state.activeText = null;
       state.pointerCapture.clear();
+      setProjectedHoverPath(null);
     },
     getCapturedTarget() {
       return state.capturedTarget;
@@ -244,6 +250,20 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       return state.lastDebug;
     },
   };
+
+  function setProjectedHoverPath(target: HTMLElement | null) {
+    for (const element of state.projectedHoverPath) {
+      element.removeAttribute("data-projected-hover");
+    }
+    state.projectedHoverPath = [];
+
+    let element: HTMLElement | null = target;
+    while (element && panel.contains(element)) {
+      element.setAttribute("data-projected-hover", "");
+      state.projectedHoverPath.push(element);
+      element = element.parentElement;
+    }
+  }
 }
 
 export function describeProjectedDomTarget(target: HTMLElement | null) {

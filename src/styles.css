@@ -3,6 +3,7 @@
 @import "./shadcn-demo/shadcn-tailwind.css";
 @import "./shadcn-demo/style-nova.css";
 
+@custom-variant hover (&:hover, &[data-projected-hover]);
 @custom-variant dark (&:is(.dark *));
 
 @keyframes accordion-down {

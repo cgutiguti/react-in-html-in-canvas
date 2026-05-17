@@ -399,7 +399,7 @@ export function RawProjectorDemo() {
       <canvas ref={canvasRef} className="fixed inset-0 h-full w-full" aria-label="Raw WebGL projected DOM demo">
         <div
           ref={projectionSourceRef}
-          className="projection-source overflow-hidden"
+          className="projection-source pointer-events-none overflow-hidden"
           style={{ width: panelSize.width, height: panelSize.height }}
         >
           <ProjectedPanel panelRef={panelRef} />
