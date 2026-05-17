@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { RootComponents } from "../shadcn-demo/components";
-import { ShadcnPortalProvider } from "../shadcn-demo/portal";
-import { TooltipProvider } from "../shadcn-demo/ui/tooltip";
+import { RootComponents } from "../../shadcn-demo/components";
+import { ShadcnPortalProvider } from "../../shadcn-demo/portal";
+import { TooltipProvider } from "../../shadcn-demo/ui/tooltip";
 
 export function ProjectedPanel({
   panelRef,

@@ -5,11 +5,11 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
-import { DebugOverlay } from "./DebugOverlay";
-import { ProjectedPanel } from "./ProjectedPanel";
-import type { Vec3, ViewState } from "./projectorTypes";
-import { usePerformanceStats, type RenderPerformanceMetrics } from "./usePerformanceStats";
-import { ViewportGizmo } from "./ViewportGizmo";
+import { DebugOverlay } from "../features/raw-projector/DebugOverlay";
+import { ProjectedPanel } from "../features/raw-projector/ProjectedPanel";
+import type { Vec3, ViewState } from "../features/raw-projector/projectorTypes";
+import { usePerformanceStats, type RenderPerformanceMetrics } from "../features/raw-projector/usePerformanceStats";
+import { ViewportGizmo } from "../features/raw-projector/ViewportGizmo";
 
 type LightingSettings = {
   ambient: number;

@@ -1,5 +1,5 @@
 import { Crosshair } from "lucide-react";
-import { Button } from "../components/button";
+import { Button } from "../../components/button";
 import type { PerformanceStats } from "./usePerformanceStats";
 
 export function DebugOverlay({
