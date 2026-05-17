@@ -1,6 +1,6 @@
 # React HTML-in-Canvas DOM Event Projection
 
-[Live demo](https://cgutiguti.github.io/react-in-html-in-canvas-experiment/)
+[Live demo](https://cgutiguti.github.io/react-in-html-in-canvas/)
 
 This experiment uses Chrome's experimental HTML-in-Canvas APIs to render a live React/shadcn DOM subtree into a WebGL scene, project it onto 3D geometry, and route pointer, wheel, drag, range, and text-input interactions back to the original DOM controls.
 
