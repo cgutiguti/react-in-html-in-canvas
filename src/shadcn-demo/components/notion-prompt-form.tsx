@@ -400,10 +400,7 @@ export function NotionPromptForm() {
                                 <CommandItem
                                   key={user.title}
                                   value={user.title}
-                                  onSelect={() => {
-                                    // Handle user selection here
-                                    console.log("Selected user:", user.title)
-                                  }}
+                                  onSelect={() => undefined}
                                 >
                                   <Avatar className="size-4">
                                     <AvatarImage src={user.image} />
