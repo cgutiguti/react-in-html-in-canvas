@@ -551,7 +551,7 @@ function usePerformanceStats(
 
 function PerformancePanel({ stats }: { stats: PerformanceStats }) {
   return (
-    <div className="pointer-events-none w-72 border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
+    <div className="pointer-events-none w-80 border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
       <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-cyan-300/80">
         <span>performance</span>
         <span>{stats.dpr.toFixed(2)} dpr</span>
@@ -566,12 +566,10 @@ function PerformancePanel({ stats }: { stats: PerformanceStats }) {
         <strong className="text-right font-semibold text-cyan-50">{stats.cpuRenderMs.toFixed(1)} ms</strong>
         <span className="text-slate-400">gpu render</span>
         <strong className="text-right font-semibold text-amber-200">{formatMilliseconds(stats.gpuRenderMs)}</strong>
-        <span className="text-slate-400">heap used</span>
-        <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapUsedMb)}</strong>
-        <span className="text-slate-400">heap total</span>
-        <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapTotalMb)}</strong>
-        <span className="text-slate-400">heap limit</span>
-        <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapLimitMb)}</strong>
+        <span className="text-slate-400">heap</span>
+        <strong className="whitespace-nowrap text-right font-semibold text-cyan-50">
+          {formatMegabytes(stats.heapUsedMb)} / {formatMegabytes(stats.heapTotalMb)}
+        </strong>
         <span className="text-slate-400">canvas</span>
         <strong className="text-right font-semibold text-cyan-50">
           {stats.canvasWidth}x{stats.canvasHeight}
