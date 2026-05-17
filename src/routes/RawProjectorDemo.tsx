@@ -43,6 +43,7 @@ type Engine = {
   getViewState(): ViewState;
   setSceneMesh(sceneMesh: SceneMeshData): void;
   setHitMapVisible(visible: boolean): void;
+  getPerformanceMetrics(): RenderPerformanceMetrics;
 };
 
 type ViewState = {
@@ -57,6 +58,10 @@ type ViewState = {
 type PerformanceStats = {
   fps: number;
   frameMs: number;
+  cpuRenderMs: number;
+  gpuRenderMs: number | null;
+  cpuHistory: number[];
+  gpuHistory: Array<number | null>;
   heapUsedMb: number | null;
   heapTotalMb: number | null;
   heapLimitMb: number | null;
@@ -65,12 +70,31 @@ type PerformanceStats = {
   dpr: number;
 };
 
+type RenderPerformanceMetrics = {
+  cpuRenderMs: number;
+  gpuRenderMs: number | null;
+};
+
 type PerformanceWithMemory = Performance & {
   memory?: {
     usedJSHeapSize: number;
     totalJSHeapSize: number;
     jsHeapSizeLimit: number;
   };
+};
+
+type WebGLTimerQueryEXT = object;
+
+type TimerQueryExtension = {
+  TIME_ELAPSED_EXT: number;
+  QUERY_RESULT_AVAILABLE_EXT: number;
+  QUERY_RESULT_EXT: number;
+  GPU_DISJOINT_EXT: number;
+  createQueryEXT(): WebGLTimerQueryEXT | null;
+  deleteQueryEXT(query: WebGLTimerQueryEXT | null): void;
+  beginQueryEXT(target: number, query: WebGLTimerQueryEXT): void;
+  endQueryEXT(target: number): void;
+  getQueryObjectEXT(query: WebGLTimerQueryEXT, pname: number): unknown;
 };
 
 const panelSize = { width: 1400, height: 875 };
@@ -168,7 +192,7 @@ export function RawProjectorDemo() {
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [status, setStatus] = useState("raw WebGL renderer readying");
   const [viewState, setViewState] = useState<ViewState | null>(null);
-  const perfStats = usePerformanceStats(debugVisible, canvasRef);
+  const perfStats = usePerformanceStats(debugVisible, canvasRef, engineRef);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -419,32 +443,49 @@ export function RawProjectorDemo() {
         </div>
       </canvas>
 
-      <div className="pointer-events-none fixed left-5 top-5 z-10 text-sm text-slate-700">
-        <div className="pointer-events-auto flex max-w-[calc(100vw-40px)] items-center gap-2">
-          <Button variant={debugVisible ? "default" : "secondary"} onClick={() => setDebugVisible((value) => !value)}>
+      <div className="pointer-events-none fixed bottom-5 left-5 z-10 flex max-w-[calc(100vw-40px)] flex-col items-start gap-2 text-sm text-slate-700">
+        {debugVisible && <PerformancePanel stats={perfStats} />}
+        <div className="pointer-events-auto flex max-w-full items-center gap-2">
+          <Button
+            className="rounded-none"
+            variant={debugVisible ? "default" : "secondary"}
+            onClick={() => setDebugVisible((value) => !value)}
+          >
             debug
           </Button>
           {debugVisible && (
             <>
-              <Button variant="secondary" onClick={() => setHitboxesVisible((value) => !value)}>
+              <Button className="rounded-none" variant="secondary" onClick={() => setHitboxesVisible((value) => !value)}>
                 <Crosshair className="h-4 w-4" />
                 {hitboxesVisible ? "hide" : "show"} projected hit map
               </Button>
-              <div className="min-w-0 rounded-md bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100">{status}</div>
+              <div
+                className="max-w-[48rem] overflow-hidden truncate whitespace-nowrap bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100"
+                title={status}
+              >
+                {status}
+              </div>
             </>
           )}
         </div>
       </div>
-      {debugVisible && <PerformancePanel stats={perfStats} />}
       <ViewportGizmo view={viewState} onOrbit={orbitFromGizmo} onSnap={snapView} onReset={resetView} />
     </main>
   );
 }
 
-function usePerformanceStats(active: boolean, canvasRef: React.RefObject<HTMLCanvasElement | null>) {
+function usePerformanceStats(
+  active: boolean,
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  engineRef: React.RefObject<Engine | null>,
+) {
   const [stats, setStats] = useState<PerformanceStats>({
     fps: 0,
     frameMs: 0,
+    cpuRenderMs: 0,
+    gpuRenderMs: null,
+    cpuHistory: [],
+    gpuHistory: [],
     heapUsedMb: null,
     heapTotalMb: null,
     heapLimitMb: null,
@@ -461,6 +502,8 @@ function usePerformanceStats(active: boolean, canvasRef: React.RefObject<HTMLCan
     let frameMsTotal = 0;
     let lastFrameTime = performance.now();
     let lastPublishTime = lastFrameTime;
+    let cpuHistory: number[] = [];
+    let gpuHistory: Array<number | null> = [];
 
     const sample = (now: number) => {
       const delta = now - lastFrameTime;
@@ -474,9 +517,16 @@ function usePerformanceStats(active: boolean, canvasRef: React.RefObject<HTMLCan
         const elapsed = now - lastPublishTime;
         const memory = (performance as PerformanceWithMemory).memory;
         const canvas = canvasRef.current;
+        const renderMetrics = engineRef.current?.getPerformanceMetrics() ?? { cpuRenderMs: 0, gpuRenderMs: null };
+        cpuHistory = appendGraphSample(cpuHistory, renderMetrics.cpuRenderMs);
+        gpuHistory = appendGraphSample(gpuHistory, renderMetrics.gpuRenderMs);
         setStats({
           fps: frames > 0 ? Math.round((frames * 1000) / elapsed) : 0,
           frameMs: frames > 0 ? frameMsTotal / frames : 0,
+          cpuRenderMs: renderMetrics.cpuRenderMs,
+          gpuRenderMs: renderMetrics.gpuRenderMs,
+          cpuHistory,
+          gpuHistory,
           heapUsedMb: memory ? bytesToMegabytes(memory.usedJSHeapSize) : null,
           heapTotalMb: memory ? bytesToMegabytes(memory.totalJSHeapSize) : null,
           heapLimitMb: memory ? bytesToMegabytes(memory.jsHeapSizeLimit) : null,
@@ -494,23 +544,28 @@ function usePerformanceStats(active: boolean, canvasRef: React.RefObject<HTMLCan
 
     frame = requestAnimationFrame(sample);
     return () => cancelAnimationFrame(frame);
-  }, [active, canvasRef]);
+  }, [active, canvasRef, engineRef]);
 
   return stats;
 }
 
 function PerformancePanel({ stats }: { stats: PerformanceStats }) {
   return (
-    <div className="pointer-events-none fixed bottom-5 left-5 z-10 w-64 rounded-md border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
+    <div className="pointer-events-none w-72 border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
       <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-cyan-300/80">
         <span>performance</span>
         <span>{stats.dpr.toFixed(2)} dpr</span>
       </div>
+      <PerfGraph cpuHistory={stats.cpuHistory} gpuHistory={stats.gpuHistory} />
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         <span className="text-slate-400">fps</span>
         <strong className="text-right font-semibold text-cyan-50">{stats.fps}</strong>
-        <span className="text-slate-400">frame</span>
+        <span className="text-slate-400">raf frame</span>
         <strong className="text-right font-semibold text-cyan-50">{stats.frameMs.toFixed(1)} ms</strong>
+        <span className="text-slate-400">cpu render</span>
+        <strong className="text-right font-semibold text-cyan-50">{stats.cpuRenderMs.toFixed(1)} ms</strong>
+        <span className="text-slate-400">gpu render</span>
+        <strong className="text-right font-semibold text-amber-200">{formatMilliseconds(stats.gpuRenderMs)}</strong>
         <span className="text-slate-400">heap used</span>
         <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapUsedMb)}</strong>
         <span className="text-slate-400">heap total</span>
@@ -526,12 +581,71 @@ function PerformancePanel({ stats }: { stats: PerformanceStats }) {
   );
 }
 
+function PerfGraph({
+  cpuHistory,
+  gpuHistory,
+}: {
+  cpuHistory: number[];
+  gpuHistory: Array<number | null>;
+}) {
+  const width = 264;
+  const height = 56;
+  const maxMs = 40;
+  const cpuPath = createGraphPath(cpuHistory, width, height, maxMs);
+  const gpuPath = createGraphPath(gpuHistory, width, height, maxMs);
+
+  return (
+    <div className="mb-3 border border-slate-700/80 bg-slate-950/70 p-2">
+      <svg className="block h-14 w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="CPU and GPU frame time graph">
+        <line x1="0" y1={height - (16.67 / maxMs) * height} x2={width} y2={height - (16.67 / maxMs) * height} stroke="rgba(148,163,184,.28)" strokeWidth="1" />
+        <line x1="0" y1={height - (33.33 / maxMs) * height} x2={width} y2={height - (33.33 / maxMs) * height} stroke="rgba(148,163,184,.18)" strokeWidth="1" />
+        {cpuPath && <path d={cpuPath} fill="none" stroke="#67e8f9" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+        {gpuPath && <path d={gpuPath} fill="none" stroke="#fbbf24" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+      </svg>
+      <div className="mt-1 flex items-center gap-3 text-[10px] uppercase tracking-wide">
+        <span className="text-cyan-200">cpu</span>
+        <span className="text-amber-200">gpu</span>
+        <span className="ml-auto text-slate-500">16 / 33 ms</span>
+      </div>
+    </div>
+  );
+}
+
+function appendGraphSample<T>(history: T[], sample: T) {
+  const next = [...history, sample];
+  return next.length > 80 ? next.slice(next.length - 80) : next;
+}
+
+function createGraphPath(history: Array<number | null>, width: number, height: number, maxMs: number) {
+  const samples = history.slice(-80);
+  const step = samples.length > 1 ? width / (samples.length - 1) : width;
+  let path = "";
+  let drawing = false;
+
+  samples.forEach((value, index) => {
+    if (value === null) {
+      drawing = false;
+      return;
+    }
+    const x = index * step;
+    const y = height - Math.min(maxMs, Math.max(0, value)) / maxMs * height;
+    path += `${drawing ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    drawing = true;
+  });
+
+  return path;
+}
+
 function bytesToMegabytes(bytes: number) {
   return bytes / 1024 / 1024;
 }
 
 function formatMegabytes(value: number | null) {
   return value === null ? "n/a" : `${value.toFixed(1)} mb`;
+}
+
+function formatMilliseconds(value: number | null) {
+  return value === null ? "n/a" : `${value.toFixed(1)} ms`;
 }
 
 function ViewportGizmo({
@@ -713,6 +827,7 @@ function createRawProjectorEngine(
   if (!context) throw new Error("WebGL is not available.");
   const gl: WebGLRenderingContext = context;
   gl.getExtension("OES_element_index_uint");
+  const timerQuery = gl.getExtension("EXT_disjoint_timer_query") as TimerQueryExtension | null;
 
   const program = createProgram(gl, vertexShader, fragmentShader);
   const pickProgram = createProgram(gl, vertexShader, pickFragmentShader);
@@ -752,6 +867,10 @@ function createRawProjectorEngine(
   const projectorViewProjection = mat4();
   const shadowViewProjection = mat4();
   let lightingSettings = { ...initialLighting };
+  let lastCpuRenderMs = 0;
+  let lastGpuRenderMs: number | null = null;
+  let activeGpuQuery: WebGLTimerQueryEXT | null = null;
+  const pendingGpuQueries: WebGLTimerQueryEXT[] = [];
 
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
@@ -947,8 +1066,46 @@ function createRawProjectorEngine(
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
+  function pollGpuTimers() {
+    if (!timerQuery) return;
+
+    const disjoint = Boolean(gl.getParameter(timerQuery.GPU_DISJOINT_EXT));
+    while (pendingGpuQueries.length > 0) {
+      const query = pendingGpuQueries[0];
+      const available = Boolean(timerQuery.getQueryObjectEXT(query, timerQuery.QUERY_RESULT_AVAILABLE_EXT));
+      if (!available) break;
+
+      pendingGpuQueries.shift();
+      if (!disjoint) {
+        const nanoseconds = Number(timerQuery.getQueryObjectEXT(query, timerQuery.QUERY_RESULT_EXT));
+        if (Number.isFinite(nanoseconds)) {
+          lastGpuRenderMs = nanoseconds / 1_000_000;
+        }
+      }
+      timerQuery.deleteQueryEXT(query);
+    }
+  }
+
+  function beginGpuTimer() {
+    if (!timerQuery || activeGpuQuery) return;
+    pollGpuTimers();
+    const query = timerQuery.createQueryEXT();
+    if (!query) return;
+    activeGpuQuery = query;
+    timerQuery.beginQueryEXT(timerQuery.TIME_ELAPSED_EXT, query);
+  }
+
+  function endGpuTimer() {
+    if (!timerQuery || !activeGpuQuery) return;
+    timerQuery.endQueryEXT(timerQuery.TIME_ELAPSED_EXT);
+    pendingGpuQueries.push(activeGpuQuery);
+    activeGpuQuery = null;
+  }
+
   const engine: Engine = {
     render() {
+      const cpuStart = performance.now();
+      beginGpuTimer();
       updateMatrices();
       renderShadowMap();
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -956,6 +1113,9 @@ function createRawProjectorEngine(
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.viewport(0, 0, width, height);
       draw(program, false);
+      endGpuTimer();
+      lastCpuRenderMs = performance.now() - cpuStart;
+      pollGpuTimers();
     },
     resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1054,7 +1214,18 @@ function createRawProjectorEngine(
     setHitMapVisible(visible) {
       hitMapVisible = visible;
     },
+    getPerformanceMetrics() {
+      pollGpuTimers();
+      return {
+        cpuRenderMs: lastCpuRenderMs,
+        gpuRenderMs: lastGpuRenderMs,
+      };
+    },
     dispose() {
+      if (timerQuery) {
+        if (activeGpuQuery) timerQuery.deleteQueryEXT(activeGpuQuery);
+        for (const query of pendingGpuQueries) timerQuery.deleteQueryEXT(query);
+      }
       gl.deleteProgram(program);
       gl.deleteProgram(pickProgram);
       gl.deleteProgram(receiverPickProgram);
