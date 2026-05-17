@@ -41,12 +41,14 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     hoverTarget: HTMLElement | null;
     activeRange: HTMLInputElement | null;
     activeText: { element: HTMLInputElement | HTMLTextAreaElement; anchor: number } | null;
+    pointerCapture: Map<number, Element>;
     lastDebug: ProjectedDomDebug | null;
   } = {
     capturedTarget: null,
     hoverTarget: null,
     activeRange: null,
     activeText: null,
+    pointerCapture: new Map(),
     lastDebug: null,
   };
   const root = panel.parentElement;
@@ -96,10 +98,11 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       updateRangeFromProjectedPoint(state.activeRange, panel, hit.x, new Map());
       const activeRange = state.activeRange;
       if (event.type === "pointerup") {
-        dispatchProjectedPointerEvent(activeRange, "pointerup", event, panel, hit.x, hit.y);
+        dispatchProjectedPointerEventWithCaptureBridge(activeRange, "pointerup", event, panel, hit.x, hit.y, state.pointerCapture);
         dispatchMouseEvent(activeRange, "mouseup", event, panel, hit.x, hit.y);
         state.activeRange = null;
         state.capturedTarget = null;
+        state.pointerCapture.delete(event.pointerId);
       }
       return { target: activeRange, captured: activeRange };
     }
@@ -109,10 +112,11 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       updateTextSelection(state.activeText.element, panel, hit, state.activeText.anchor);
       const activeText = state.activeText.element;
       if (event.type === "pointerup") {
-        dispatchProjectedPointerEvent(activeText, "pointerup", event, panel, hit.x, hit.y);
+        dispatchProjectedPointerEventWithCaptureBridge(activeText, "pointerup", event, panel, hit.x, hit.y, state.pointerCapture);
         dispatchMouseEvent(activeText, "mouseup", event, panel, hit.x, hit.y);
         state.activeText = null;
         state.capturedTarget = null;
+        state.pointerCapture.delete(event.pointerId);
       }
       return { target: activeText, captured: activeText };
     }
@@ -122,7 +126,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
 
     if (captured && event.type === "pointermove") {
       updateHover(target, event, hit);
-      dispatchProjectedPointerEvent(captured, "pointermove", event, panel, hit.x, hit.y);
+      dispatchProjectedPointerEventWithCaptureBridge(captured, "pointermove", event, panel, hit.x, hit.y, state.pointerCapture);
       dispatchMouseEvent(captured, "mousemove", event, panel, hit.x, hit.y);
       return { target, captured };
     }
@@ -130,7 +134,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     if (event.type === "pointerdown" && target) {
       updateHover(target, event, hit);
       state.capturedTarget = target;
-      dispatchProjectedPointerEvent(target, "pointerdown", event, panel, hit.x, hit.y);
+      dispatchProjectedPointerEventWithCaptureBridge(target, "pointerdown", event, panel, hit.x, hit.y, state.pointerCapture);
       dispatchMouseEvent(target, "mousedown", event, panel, hit.x, hit.y);
 
       if (target instanceof HTMLInputElement && target.type === "range") {
@@ -151,7 +155,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     if (event.type === "pointerup") {
       if (captured) {
         updateHover(target, event, hit);
-        dispatchProjectedPointerEvent(captured, "pointerup", event, panel, hit.x, hit.y);
+        dispatchProjectedPointerEventWithCaptureBridge(captured, "pointerup", event, panel, hit.x, hit.y, state.pointerCapture);
         dispatchMouseEvent(captured, "mouseup", event, panel, hit.x, hit.y);
         if (isClickable(captured)) {
           captured.click();
@@ -162,16 +166,18 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       state.capturedTarget = null;
       state.activeRange = null;
       state.activeText = null;
+      state.pointerCapture.delete(event.pointerId);
       return { target, captured };
     }
 
     if (event.type === "pointercancel") {
       if (captured) {
-        dispatchProjectedPointerEvent(captured, "pointercancel", event, panel, hit.x, hit.y);
+        dispatchProjectedPointerEventWithCaptureBridge(captured, "pointercancel", event, panel, hit.x, hit.y, state.pointerCapture);
       }
       state.capturedTarget = null;
       state.activeRange = null;
       state.activeText = null;
+      state.pointerCapture.delete(event.pointerId);
       updateHover(null, event, hit);
       return { target, captured };
     }
@@ -229,6 +235,7 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
       state.capturedTarget = null;
       state.activeRange = null;
       state.activeText = null;
+      state.pointerCapture.clear();
     },
     getCapturedTarget() {
       return state.capturedTarget;
@@ -241,6 +248,42 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
 
 export function describeProjectedDomTarget(target: HTMLElement | null) {
   return target ? describeTarget(target) : "";
+}
+
+function dispatchProjectedPointerEventWithCaptureBridge(
+  target: HTMLElement,
+  type: string,
+  source: PointerEvent,
+  panel: HTMLElement,
+  panelX: number,
+  panelY: number,
+  pointerCapture: Map<number, Element>,
+) {
+  const originalSetPointerCapture = Element.prototype.setPointerCapture;
+  const originalHasPointerCapture = Element.prototype.hasPointerCapture;
+  const originalReleasePointerCapture = Element.prototype.releasePointerCapture;
+
+  Element.prototype.setPointerCapture = function setProjectedPointerCapture(pointerId: number) {
+    pointerCapture.set(pointerId, this);
+  };
+  Element.prototype.hasPointerCapture = function hasProjectedPointerCapture(pointerId: number) {
+    return pointerCapture.get(pointerId) === this || originalHasPointerCapture.call(this, pointerId);
+  };
+  Element.prototype.releasePointerCapture = function releaseProjectedPointerCapture(pointerId: number) {
+    if (pointerCapture.get(pointerId) === this) {
+      pointerCapture.delete(pointerId);
+      return;
+    }
+    originalReleasePointerCapture.call(this, pointerId);
+  };
+
+  try {
+    return dispatchProjectedPointerEvent(target, type, source, panel, panelX, panelY);
+  } finally {
+    Element.prototype.setPointerCapture = originalSetPointerCapture;
+    Element.prototype.hasPointerCapture = originalHasPointerCapture;
+    Element.prototype.releasePointerCapture = originalReleasePointerCapture;
+  }
 }
 
 function dispatchMouseEvent(
