@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createDemoEngine, loadOriginalProjectorModel, type DemoEngine } from "./demoEngine";
+import { createEngine, loadSceneModel, type Engine } from "./engine";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
@@ -18,10 +18,10 @@ export function useHtmlInCanvasController({
   const projectionSourceRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<ProjectedDomViewport | null>(null);
-  const engineRef = useRef<DemoEngine | null>(null);
+  const engineRef = useRef<Engine | null>(null);
   const routingRef = useRef(false);
   const orbitRef = useRef<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 });
-  const [status, setStatus] = useState("demo renderer readying");
+  const [status, setStatus] = useState("renderer readying");
   const [viewState, setViewState] = useState<ViewState | null>(null);
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function useHtmlInCanvasController({
     viewportRef.current = createProjectedDomViewport(panel);
     canvas.setAttribute("layoutsubtree", "");
     canvas.layoutSubtree = true;
-    const engine = createDemoEngine(canvas, projectionSource, texture.canvas);
+    const engine = createEngine(canvas, projectionSource, texture.canvas);
     engineRef.current = engine;
     setViewState(engine.getViewState());
     let disposed = false;
@@ -57,13 +57,13 @@ export function useHtmlInCanvasController({
       engine.render();
     };
     updateTexture();
-    void loadOriginalProjectorModel().then((sceneMesh) => {
+    void loadSceneModel().then((sceneMesh) => {
       if (disposed || engineRef.current !== engine) return;
       engine.setSceneMesh(sceneMesh);
       engine.render();
       setStatus("loaded original GLB geometry");
     }).catch((error) => {
-      console.warn("[demo] original GLB load failed; using procedural fallback", error);
+      console.warn("[engine] original GLB load failed; using procedural fallback", error);
       setStatus("using procedural fallback geometry");
     });
 

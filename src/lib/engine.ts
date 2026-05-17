@@ -29,7 +29,7 @@ export type LightingSettings = {
   shadowBias: number;
 };
 
-export type DemoEngine = {
+export type Engine = {
   render(): void;
   resize(): void;
   dispose(): void;
@@ -82,11 +82,11 @@ const initialLighting: LightingSettings = {
   shadowBias: 0.008,
 };
 
-export function createDemoEngine(
+export function createEngine(
   canvas: HTMLCanvasElement,
   domElement: HTMLElement,
   fallbackCanvas: HTMLCanvasElement,
-): DemoEngine {
+): Engine {
   const context = canvas.getContext("webgl", { antialias: true, alpha: false });
   if (!context) throw new Error("WebGL is not available.");
   const gl: WebGLRenderingContext = context;
@@ -107,7 +107,7 @@ export function createDemoEngine(
   const shadowFramebuffer = gl.createFramebuffer();
   const shadowMapSize = 2048;
   if (!domTexture || !pickTexture || !pickDepth || !pickFramebuffer || !shadowTexture || !shadowDepth || !shadowFramebuffer) {
-    throw new Error("Could not allocate demo GL resources.");
+    throw new Error("Could not allocate GL resources.");
   }
 
   let width = 1;
@@ -366,7 +366,7 @@ export function createDemoEngine(
     activeGpuQuery = null;
   }
 
-  const engine: DemoEngine = {
+  const engine: Engine = {
     render() {
       const cpuStart = performance.now();
       beginGpuTimer();
@@ -404,7 +404,7 @@ export function createDemoEngine(
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (!message.includes("No cached paint record")) {
-            console.warn("[demo] native element texture upload failed; falling back to SVG raster texture", error);
+            console.warn("[engine] native element texture upload failed; falling back to SVG raster texture", error);
           }
         }
       }
@@ -538,7 +538,7 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string) 
 }
 
 
-export async function loadOriginalProjectorModel(): Promise<SceneMeshData> {
+export async function loadSceneModel(): Promise<SceneMeshData> {
   const loader = new GLTFLoader();
   const dracoLoader = new DRACOLoader();
   dracoLoader.setDecoderPath("/draco/");
