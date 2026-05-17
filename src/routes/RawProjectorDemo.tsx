@@ -54,6 +54,25 @@ type ViewState = {
   forward: Vec3;
 };
 
+type PerformanceStats = {
+  fps: number;
+  frameMs: number;
+  heapUsedMb: number | null;
+  heapTotalMb: number | null;
+  heapLimitMb: number | null;
+  canvasWidth: number;
+  canvasHeight: number;
+  dpr: number;
+};
+
+type PerformanceWithMemory = Performance & {
+  memory?: {
+    usedJSHeapSize: number;
+    totalJSHeapSize: number;
+    jsHeapSizeLimit: number;
+  };
+};
+
 const panelSize = { width: 1400, height: 875 };
 const projectorFov = 18;
 const initialLighting: LightingSettings = {
@@ -149,6 +168,7 @@ export function RawProjectorDemo() {
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [status, setStatus] = useState("raw WebGL renderer readying");
   const [viewState, setViewState] = useState<ViewState | null>(null);
+  const perfStats = usePerformanceStats(debugVisible, canvasRef);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -415,9 +435,103 @@ export function RawProjectorDemo() {
           )}
         </div>
       </div>
+      {debugVisible && <PerformancePanel stats={perfStats} />}
       <ViewportGizmo view={viewState} onOrbit={orbitFromGizmo} onSnap={snapView} onReset={resetView} />
     </main>
   );
+}
+
+function usePerformanceStats(active: boolean, canvasRef: React.RefObject<HTMLCanvasElement | null>) {
+  const [stats, setStats] = useState<PerformanceStats>({
+    fps: 0,
+    frameMs: 0,
+    heapUsedMb: null,
+    heapTotalMb: null,
+    heapLimitMb: null,
+    canvasWidth: 0,
+    canvasHeight: 0,
+    dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
+  });
+
+  useEffect(() => {
+    if (!active) return;
+
+    let frame = 0;
+    let frames = 0;
+    let frameMsTotal = 0;
+    let lastFrameTime = performance.now();
+    let lastPublishTime = lastFrameTime;
+
+    const sample = (now: number) => {
+      const delta = now - lastFrameTime;
+      lastFrameTime = now;
+      if (delta > 0 && delta < 1000) {
+        frames += 1;
+        frameMsTotal += delta;
+      }
+
+      if (now - lastPublishTime >= 500) {
+        const elapsed = now - lastPublishTime;
+        const memory = (performance as PerformanceWithMemory).memory;
+        const canvas = canvasRef.current;
+        setStats({
+          fps: frames > 0 ? Math.round((frames * 1000) / elapsed) : 0,
+          frameMs: frames > 0 ? frameMsTotal / frames : 0,
+          heapUsedMb: memory ? bytesToMegabytes(memory.usedJSHeapSize) : null,
+          heapTotalMb: memory ? bytesToMegabytes(memory.totalJSHeapSize) : null,
+          heapLimitMb: memory ? bytesToMegabytes(memory.jsHeapSizeLimit) : null,
+          canvasWidth: canvas?.width ?? 0,
+          canvasHeight: canvas?.height ?? 0,
+          dpr: window.devicePixelRatio || 1,
+        });
+        frames = 0;
+        frameMsTotal = 0;
+        lastPublishTime = now;
+      }
+
+      frame = requestAnimationFrame(sample);
+    };
+
+    frame = requestAnimationFrame(sample);
+    return () => cancelAnimationFrame(frame);
+  }, [active, canvasRef]);
+
+  return stats;
+}
+
+function PerformancePanel({ stats }: { stats: PerformanceStats }) {
+  return (
+    <div className="pointer-events-none fixed bottom-5 left-5 z-10 w-64 rounded-md border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
+      <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-cyan-300/80">
+        <span>performance</span>
+        <span>{stats.dpr.toFixed(2)} dpr</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <span className="text-slate-400">fps</span>
+        <strong className="text-right font-semibold text-cyan-50">{stats.fps}</strong>
+        <span className="text-slate-400">frame</span>
+        <strong className="text-right font-semibold text-cyan-50">{stats.frameMs.toFixed(1)} ms</strong>
+        <span className="text-slate-400">heap used</span>
+        <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapUsedMb)}</strong>
+        <span className="text-slate-400">heap total</span>
+        <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapTotalMb)}</strong>
+        <span className="text-slate-400">heap limit</span>
+        <strong className="text-right font-semibold text-cyan-50">{formatMegabytes(stats.heapLimitMb)}</strong>
+        <span className="text-slate-400">canvas</span>
+        <strong className="text-right font-semibold text-cyan-50">
+          {stats.canvasWidth}x{stats.canvasHeight}
+        </strong>
+      </div>
+    </div>
+  );
+}
+
+function bytesToMegabytes(bytes: number) {
+  return bytes / 1024 / 1024;
+}
+
+function formatMegabytes(value: number | null) {
+  return value === null ? "n/a" : `${value.toFixed(1)} mb`;
 }
 
 function ViewportGizmo({
