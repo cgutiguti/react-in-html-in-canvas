@@ -1,8 +1,5 @@
-import * as THREE from "three";
-
 export class HtmlToCanvasTexture {
   readonly canvas: HTMLCanvasElement;
-  readonly texture: THREE.CanvasTexture;
 
   private readonly context: CanvasRenderingContext2D;
   private rendering = false;
@@ -16,11 +13,6 @@ export class HtmlToCanvasTexture {
     const context = this.canvas.getContext("2d");
     if (!context) throw new Error("Could not create 2D canvas context for HTML texture.");
     this.context = context;
-    this.texture = new THREE.CanvasTexture(this.canvas);
-    this.texture.colorSpace = THREE.SRGBColorSpace;
-    this.texture.minFilter = THREE.LinearFilter;
-    this.texture.magFilter = THREE.LinearFilter;
-    this.texture.generateMipmaps = false;
   }
 
   resize(width: number, height: number) {
@@ -61,15 +53,10 @@ export class HtmlToCanvasTexture {
         await image.decode();
         this.context.clearRect(0, 0, width, height);
         this.context.drawImage(image, 0, 0, width, height);
-        this.texture.needsUpdate = true;
       } while (this.pending);
     } finally {
       this.rendering = false;
     }
-  }
-
-  dispose() {
-    this.texture.dispose();
   }
 
   private createSvgUrl(css: string) {

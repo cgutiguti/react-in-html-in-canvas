@@ -183,7 +183,6 @@ export function RawProjectorDemo() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const projectionSourceRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const textureRef = useRef<HtmlToCanvasTexture | null>(null);
   const viewportRef = useRef<ProjectedDomViewport | null>(null);
   const engineRef = useRef<Engine | null>(null);
   const routingRef = useRef(false);
@@ -201,7 +200,6 @@ export function RawProjectorDemo() {
     if (!canvas || !projectionSource || !panel) return;
 
     const texture = new HtmlToCanvasTexture(panel, { ...panelSize, pixelRatio: 2 });
-    textureRef.current = texture;
     viewportRef.current = createProjectedDomViewport(panel);
     canvas.setAttribute("layoutsubtree", "");
     canvas.layoutSubtree = true;
@@ -391,9 +389,7 @@ export function RawProjectorDemo() {
       canvas.removeEventListener("pointercancel", onPointerCancel, true);
       canvas.removeEventListener("pointerleave", onPointerLeave, true);
       canvas.removeEventListener("wheel", onWheel, true);
-      texture.dispose();
       engine.dispose();
-      if (textureRef.current === texture) textureRef.current = null;
       if (engineRef.current === engine) engineRef.current = null;
       if (viewportRef.current?.getCapturedTarget()) viewportRef.current.releasePointer(0);
       if (viewportRef.current) viewportRef.current = null;
