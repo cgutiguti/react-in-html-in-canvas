@@ -1,3 +1,5 @@
+const MAX_FALLBACK_PIXEL_RATIO = 2;
+
 export class HtmlToCanvasTexture {
   readonly canvas: HTMLCanvasElement;
 
@@ -26,7 +28,7 @@ export class HtmlToCanvasTexture {
       cssHeight: this.options.height,
       canvasWidth: this.canvas.width,
       canvasHeight: this.canvas.height,
-      pixelRatio: this.options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, 2),
+      pixelRatio: this.options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, MAX_FALLBACK_PIXEL_RATIO),
     };
   }
 
@@ -40,7 +42,7 @@ export class HtmlToCanvasTexture {
     try {
       do {
         this.pending = false;
-        const pixelRatio = this.options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, 2);
+        const pixelRatio = this.options.pixelRatio ?? Math.min(window.devicePixelRatio || 1, MAX_FALLBACK_PIXEL_RATIO);
         const width = Math.max(1, Math.floor(this.options.width * pixelRatio));
         const height = Math.max(1, Math.floor(this.options.height * pixelRatio));
         if (this.canvas.width !== width || this.canvas.height !== height) {

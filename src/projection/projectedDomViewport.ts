@@ -36,6 +36,14 @@ export type ProjectedDomDebug = {
   projectedHover: string;
 };
 
+const ROOT_HIT_TEST_Z_INDEX = "2147483647";
+const DEBUG_STACK_LIMIT = 8;
+const INTERACTIVE_TARGET_SELECTOR = "button, input, select, textarea, [role='button'], [role='switch'], [tabindex]";
+const TEXT_INPUT_TYPES = ["", "text", "search", "url", "tel", "email", "password"];
+const TEXTAREA_FALLBACK_LINE_HEIGHT_MULTIPLIER = 1.2;
+const TEXTAREA_DEFAULT_LINE_HEIGHT = 16;
+const DESCRIBED_CLASS_LIMIT = 2;
+
 export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomViewport {
   const state: {
     capturedTarget: HTMLElement | null;
@@ -61,13 +69,13 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
     const previousZIndex = root?.style.zIndex ?? "";
     if (root) {
       root.style.pointerEvents = "auto";
-      root.style.zIndex = "2147483647";
+      root.style.zIndex = ROOT_HIT_TEST_Z_INDEX;
     }
     try {
       const element = document.elementFromPoint(hit.x, hit.y);
       const containedElement = element && panel.contains(element) ? element : null;
       const interactiveTarget = containedElement?.closest<HTMLElement>(
-        "button, input, select, textarea, [role='button'], [role='switch'], [tabindex]",
+        INTERACTIVE_TARGET_SELECTOR,
       );
       const target =
         interactiveTarget && panel.contains(interactiveTarget)
@@ -81,10 +89,10 @@ export function createProjectedDomViewport(panel: HTMLElement): ProjectedDomView
         rootRect: root ? formatRect(root.getBoundingClientRect()) : "none",
         panelRect: formatRect(panel.getBoundingClientRect()),
         element: element ? describeElement(element) : "none",
-        stack: document.elementsFromPoint(hit.x, hit.y).slice(0, 8).map(describeElement),
+        stack: document.elementsFromPoint(hit.x, hit.y).slice(0, DEBUG_STACK_LIMIT).map(describeElement),
         contained: Boolean(element && panel.contains(element)),
         target: target ? describeElement(target) : "none",
-        controls: panel.querySelectorAll("button, input, select, textarea, [role='button'], [role='switch'], [tabindex]").length,
+        controls: panel.querySelectorAll(INTERACTIVE_TARGET_SELECTOR).length,
         projectedHover: state.projectedHoverPath.map(describeElement).join(" > "),
       };
       return target;
@@ -404,7 +412,7 @@ function dispatchWheelEvent(
 function isTextControl(target: HTMLElement): target is HTMLInputElement | HTMLTextAreaElement {
   if (target instanceof HTMLTextAreaElement) return true;
   if (!(target instanceof HTMLInputElement)) return false;
-  return ["", "text", "search", "url", "tel", "email", "password"].includes(target.type);
+  return TEXT_INPUT_TYPES.includes(target.type);
 }
 
 function updateTextSelection(
@@ -470,7 +478,7 @@ function getTextareaCaretIndex(textarea: HTMLTextAreaElement, panel: HTMLElement
   const style = window.getComputedStyle(textarea);
   const localX = hit.x - rect.left - px(style.paddingLeft) + textarea.scrollLeft;
   const localY = hit.y - rect.top - px(style.paddingTop) + textarea.scrollTop;
-  const lineHeight = px(style.lineHeight) || px(style.fontSize) * 1.2 || 16;
+  const lineHeight = px(style.lineHeight) || px(style.fontSize) * TEXTAREA_FALLBACK_LINE_HEIGHT_MULTIPLIER || TEXTAREA_DEFAULT_LINE_HEIGHT;
   const lineIndex = Math.max(0, Math.floor(localY / lineHeight));
   const lines = textarea.value.split("\n");
   const clampedLine = Math.min(lines.length - 1, lineIndex);
@@ -510,7 +518,7 @@ function describeElement(element: Element) {
   const id = element.id ? `#${element.id}` : "";
   const className =
     typeof element.className === "string" && element.className.trim()
-      ? `.${element.className.trim().split(/\s+/).slice(0, 2).join(".")}`
+      ? `.${element.className.trim().split(/\s+/).slice(0, DESCRIBED_CLASS_LIMIT).join(".")}`
       : "";
   return `${element.tagName.toLowerCase()}${id}${className}`;
 }

@@ -1,8 +1,14 @@
 export type ProjectedSliderSetter = (value: number) => void;
 
+const INTERACTIVE_TARGET_SELECTOR = "button, input, select, textarea, [role='button'], [role='switch'], [tabindex]";
+const PROJECTED_CONTROL_SELECTOR = "button, input, [role='switch'], [tabindex]";
+const DEFAULT_RANGE_MIN = 0;
+const DEFAULT_RANGE_MAX = 100;
+const DEFAULT_RANGE_STEP = 1;
+
 export function findProjectedTarget(panel: HTMLElement, x: number, y: number): HTMLElement | null {
   const element = findProjectedElement(panel, x, y);
-  return element?.closest<HTMLElement>("button, input, select, textarea, [role='button'], [role='switch'], [tabindex]") ?? null;
+  return element?.closest<HTMLElement>(INTERACTIVE_TARGET_SELECTOR) ?? null;
 }
 
 export function findProjectedElement(panel: HTMLElement, x: number, y: number): HTMLElement | null {
@@ -21,7 +27,7 @@ export function findProjectedElement(panel: HTMLElement, x: number, y: number): 
 }
 
 export function getProjectedControls(panel: HTMLElement) {
-  return Array.from(panel.querySelectorAll<HTMLElement>("button, input, [role='switch'], [tabindex]"));
+  return Array.from(panel.querySelectorAll<HTMLElement>(PROJECTED_CONTROL_SELECTOR));
 }
 
 export function updateRangeFromProjectedPoint(
@@ -31,9 +37,9 @@ export function updateRangeFromProjectedPoint(
   sliderSetters: Map<string, ProjectedSliderSetter>,
 ) {
   const rect = getLocalRect(range, panel);
-  const min = Number(range.min || 0);
-  const max = Number(range.max || 100);
-  const step = Number(range.step || 1);
+  const min = Number(range.min || DEFAULT_RANGE_MIN);
+  const max = Number(range.max || DEFAULT_RANGE_MAX);
+  const step = Number(range.step || DEFAULT_RANGE_STEP);
   const localX = panelX - rect.left;
   const ratio = Math.min(1, Math.max(0, localX / rect.width));
   const stepped = Math.round((min + ratio * (max - min)) / step) * step;

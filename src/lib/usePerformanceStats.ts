@@ -30,6 +30,12 @@ type PerformanceMetricsSource = {
   getPerformanceMetrics(): RenderPerformanceMetrics;
 };
 
+const MAX_REASONABLE_FRAME_MS = 1000;
+const STATS_PUBLISH_INTERVAL_MS = 500;
+const GRAPH_HISTORY_LIMIT = 80;
+const BYTES_PER_MEGABYTE = 1024 * 1024;
+const MILLISECONDS_PER_SECOND = 1000;
+
 export function usePerformanceStats(
   active: boolean,
   canvasRef: RefObject<HTMLCanvasElement | null>,
@@ -63,12 +69,12 @@ export function usePerformanceStats(
     const sample = (now: number) => {
       const delta = now - lastFrameTime;
       lastFrameTime = now;
-      if (delta > 0 && delta < 1000) {
+      if (delta > 0 && delta < MAX_REASONABLE_FRAME_MS) {
         frames += 1;
         frameMsTotal += delta;
       }
 
-      if (now - lastPublishTime >= 500) {
+      if (now - lastPublishTime >= STATS_PUBLISH_INTERVAL_MS) {
         const elapsed = now - lastPublishTime;
         const memory = (performance as PerformanceWithMemory).memory;
         const canvas = canvasRef.current;
@@ -76,7 +82,7 @@ export function usePerformanceStats(
         cpuHistory = appendGraphSample(cpuHistory, renderMetrics.cpuRenderMs);
         gpuHistory = appendGraphSample(gpuHistory, renderMetrics.gpuRenderMs);
         setStats({
-          fps: frames > 0 ? Math.round((frames * 1000) / elapsed) : 0,
+          fps: frames > 0 ? Math.round((frames * MILLISECONDS_PER_SECOND) / elapsed) : 0,
           frameMs: frames > 0 ? frameMsTotal / frames : 0,
           cpuRenderMs: renderMetrics.cpuRenderMs,
           gpuRenderMs: renderMetrics.gpuRenderMs,
@@ -105,9 +111,9 @@ export function usePerformanceStats(
 
 function appendGraphSample<T>(history: T[], sample: T) {
   const next = [...history, sample];
-  return next.length > 80 ? next.slice(next.length - 80) : next;
+  return next.length > GRAPH_HISTORY_LIMIT ? next.slice(next.length - GRAPH_HISTORY_LIMIT) : next;
 }
 
 function bytesToMegabytes(bytes: number) {
-  return bytes / 1024 / 1024;
+  return bytes / BYTES_PER_MEGABYTE;
 }

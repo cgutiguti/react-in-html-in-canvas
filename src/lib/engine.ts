@@ -10,6 +10,7 @@ import { receiverPickFragmentShader } from "./shaders/receiverPickFragmentShader
 import { receiverPickVertexShader } from "./shaders/receiverPickVertexShader";
 import { shadowFragmentShader } from "./shaders/shadowFragmentShader";
 import { shadowVertexShader } from "./shaders/shadowVertexShader";
+import { PROJECTED_PANEL_SIZE } from "./config";
 
 export type LightingSettings = {
   ambient: number;
@@ -62,8 +63,79 @@ type TimerQueryExtension = {
 
 export type SceneMeshData = { vertices: Float32Array; indices: Uint16Array | Uint32Array };
 
-const panelSize = { width: 1400, height: 875 };
-const projectorFov = 18;
+const PROJECTOR_FOV_DEGREES = 18;
+const PROJECTOR_TARGET = [0.6, -2.35, -2.35] as Vec3;
+const PROJECTOR_EYE = [0.52, -2.05, 7.15] as Vec3;
+const CAMERA_NEAR = 0.05;
+const PROJECTOR_NEAR = 1;
+const CAMERA_FAR = 100;
+const SHADOW_MAP_SIZE = 2048;
+const SHADOW_LIGHT_DISTANCE = 22;
+const SHADOW_ORTHO_BOUNDS = { left: -9.5, right: 9.5, bottom: -7.5, top: 7.5, near: 0.1, far: 45 };
+const MAX_DEVICE_PIXEL_RATIO = 2;
+const ORBIT_SENSITIVITY = 0.006;
+const ZOOM_SENSITIVITY = 0.0012;
+const MIN_VIEW_RADIUS = 4;
+const MAX_VIEW_RADIUS = 36;
+const VERTEX_FLOAT_COUNT = 7;
+const VERTEX_STRIDE_BYTES = VERTEX_FLOAT_COUNT * Float32Array.BYTES_PER_ELEMENT;
+const POSITION_OFFSET_BYTES = 0;
+const NORMAL_OFFSET_BYTES = 3 * Float32Array.BYTES_PER_ELEMENT;
+const RECEIVER_ID_OFFSET_BYTES = 6 * Float32Array.BYTES_PER_ELEMENT;
+const MAX_VERTEX_ATTRIBUTES_TO_DISABLE = 8;
+const GL_TIMER_NANOSECONDS_PER_MILLISECOND = 1_000_000;
+const MAX_UINT16_INDEX = 65535;
+const PICK_DECODE_MAX = 65534;
+const PICK_DECODE_OFFSET = 1;
+const PICK_HIGH_BYTE_MULTIPLIER = 256;
+const DEFAULT_RECEIVER_ID = 1;
+const MODEL_RECEIVER_ID_START = DEFAULT_RECEIVER_ID;
+const BACKGROUND_MESH_NAME = "bg";
+const CYLINDER_SEGMENTS = 36;
+const PICK_PIXEL_SIZE = 1;
+const PROCEDURAL_WALL_RECEIVER_ID = 1;
+const PROCEDURAL_FLOOR_RECEIVER_ID = 2;
+
+const fallbackPlanes = [
+  {
+    points: [
+      [-5.8, 2.95, -4.35],
+      [5.8, 2.95, -4.35],
+      [5.8, -2.95, -4.35],
+      [-5.8, -2.95, -4.35],
+    ] as [Vec3, Vec3, Vec3, Vec3],
+    receiverId: PROCEDURAL_WALL_RECEIVER_ID,
+  },
+  {
+    points: [
+      [-5.8, -2.95, -4.35],
+      [5.8, -2.95, -4.35],
+      [5.8, -2.95, 2.7],
+      [-5.8, -2.95, 2.7],
+    ] as [Vec3, Vec3, Vec3, Vec3],
+    receiverId: PROCEDURAL_FLOOR_RECEIVER_ID,
+  },
+];
+
+const fallbackBoxes: Array<{ center: Vec3; size: Vec3; receiverId: number }> = [
+  { center: [-2.6, -1.98, -2.82], size: [1.9, 0.48, 1.22], receiverId: 10 },
+  { center: [1.85, -2.04, -2.7], size: [1.65, 0.36, 1.65], receiverId: 11 },
+  { center: [0.35, -2.2, -1.75], size: [1.15, 0.3, 1.25], receiverId: 12 },
+  { center: [0.65, -1.76, -2.05], size: [1.0, 0.28, 1.15], receiverId: 13 },
+  { center: [0.95, -1.34, -2.35], size: [0.86, 0.26, 1.05], receiverId: 14 },
+  { center: [-1.55, 0.3, -3.55], size: [1.45, 0.16, 0.92], receiverId: 30 },
+  { center: [0.35, 0.95, -3.7], size: [1.1, 0.16, 0.92], receiverId: 31 },
+  { center: [2.35, 0.25, -3.5], size: [1.35, 0.16, 0.86], receiverId: 32 },
+  { center: [3.15, -0.55, -3.25], size: [0.82, 0.14, 0.7], receiverId: 33 },
+];
+
+const fallbackCylinders: Array<{ center: Vec3; radius: number; height: number; receiverId: number }> = [
+  { center: [-0.95, -1.95, -2.85], radius: 0.38, height: 2.25, receiverId: 20 },
+  { center: [2.45, -1.7, -3.15], radius: 0.42, height: 2.65, receiverId: 21 },
+  { center: [-3.35, -2.05, -2.95], radius: 0.5, height: 0.55, receiverId: 22 },
+  { center: [3.05, -2.28, -2.05], radius: 0.64, height: 0.36, receiverId: 23 },
+];
+
 const initialLighting: LightingSettings = {
   ambient: 0.819,
   leftDiffuse: 0.12,
@@ -105,7 +177,6 @@ export function createEngine(
   const shadowTexture = gl.createTexture();
   const shadowDepth = gl.createRenderbuffer();
   const shadowFramebuffer = gl.createFramebuffer();
-  const shadowMapSize = 2048;
   if (!domTexture || !pickTexture || !pickDepth || !pickFramebuffer || !shadowTexture || !shadowDepth || !shadowFramebuffer) {
     throw new Error("Could not allocate GL resources.");
   }
@@ -115,13 +186,11 @@ export function createEngine(
   let yaw = 0;
   let pitch = 0;
   let hitMapVisible = true;
-  const projectorTarget = [0.6, -2.35, -2.35] as Vec3;
-  const projectorEye = [0.52, -2.05, 7.15] as Vec3;
-  const baseDirection = subtract(projectorEye, projectorTarget);
+  const baseDirection = subtract(PROJECTOR_EYE, PROJECTOR_TARGET);
   const normalizedBase = normalize(baseDirection);
   const baseYaw = Math.atan2(normalizedBase[0], normalizedBase[2]);
   const basePitch = Math.asin(normalizedBase[1]);
-  const initialViewRadius = length(subtract(projectorEye, projectorTarget));
+  const initialViewRadius = length(subtract(PROJECTOR_EYE, PROJECTOR_TARGET));
   let viewRadius = initialViewRadius;
   let currentViewState: ViewState = makeViewState();
   const uvFit = { offsetX: 0, offsetY: 0, scaleX: 1, scaleY: 1 };
@@ -145,13 +214,13 @@ export function createEngine(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, shadowMapSize, shadowMapSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.bindRenderbuffer(gl.RENDERBUFFER, shadowDepth);
-  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, shadowMapSize, shadowMapSize);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
   gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, shadowTexture, 0);
   gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, shadowDepth);
@@ -161,16 +230,16 @@ export function createEngine(
     const orbitYaw = baseYaw + yaw;
     const orbitPitch = clampOrbitPitch(basePitch + pitch);
     const eye: Vec3 = [
-      projectorTarget[0] + Math.sin(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
-      projectorTarget[1] + Math.sin(orbitPitch) * viewRadius,
-      projectorTarget[2] + Math.cos(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
+      PROJECTOR_TARGET[0] + Math.sin(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
+      PROJECTOR_TARGET[1] + Math.sin(orbitPitch) * viewRadius,
+      PROJECTOR_TARGET[2] + Math.cos(orbitYaw) * Math.cos(orbitPitch) * viewRadius,
     ];
     return { eye, orbitYaw, orbitPitch };
   }
 
   function makeViewState(): ViewState {
     const { eye } = getEye();
-    const forward = normalize(subtract(projectorTarget, eye));
+    const forward = normalize(subtract(PROJECTOR_TARGET, eye));
     const cameraUp = getCameraUp(forward);
     const right = normalize(cross(forward, cameraUp));
     const up = normalize(cross(right, forward));
@@ -192,29 +261,37 @@ export function createEngine(
 
   function updateMatrices() {
     const { eye } = getEye();
-    perspective(projection, radians(projectorFov), width / height, 0.05, 100);
-    lookAt(view, eye, projectorTarget, getCameraUp(normalize(subtract(projectorTarget, eye))));
+    perspective(projection, radians(PROJECTOR_FOV_DEGREES), width / height, CAMERA_NEAR, CAMERA_FAR);
+    lookAt(view, eye, PROJECTOR_TARGET, getCameraUp(normalize(subtract(PROJECTOR_TARGET, eye))));
     multiply(viewProjection, projection, view);
     updateViewState();
 
     const projectorView = mat4();
     const projectorProjection = mat4();
-    lookAt(projectorView, projectorEye, projectorTarget, [0, 1, 0]);
-    perspective(projectorProjection, radians(projectorFov), width / height, 1, 100);
+    lookAt(projectorView, PROJECTOR_EYE, PROJECTOR_TARGET, [0, 1, 0]);
+    perspective(projectorProjection, radians(PROJECTOR_FOV_DEGREES), width / height, PROJECTOR_NEAR, CAMERA_FAR);
     multiply(projectorViewProjection, projectorProjection, projectorView);
 
     const topLight = normalize([lightingSettings.topLightX, lightingSettings.topLightY, lightingSettings.topLightZ]);
     const shadowView = mat4();
     const shadowProjection = mat4();
-    const shadowEye = add(projectorTarget, scale(topLight, 22));
+    const shadowEye = add(PROJECTOR_TARGET, scale(topLight, SHADOW_LIGHT_DISTANCE));
     const shadowUp: Vec3 = Math.abs(topLight[1]) > 0.9 ? [0, 0, -1] : [0, 1, 0];
-    lookAt(shadowView, shadowEye, projectorTarget, shadowUp);
-    orthographic(shadowProjection, -9.5, 9.5, -7.5, 7.5, 0.1, 45);
+    lookAt(shadowView, shadowEye, PROJECTOR_TARGET, shadowUp);
+    orthographic(
+      shadowProjection,
+      SHADOW_ORTHO_BOUNDS.left,
+      SHADOW_ORTHO_BOUNDS.right,
+      SHADOW_ORTHO_BOUNDS.bottom,
+      SHADOW_ORTHO_BOUNDS.top,
+      SHADOW_ORTHO_BOUNDS.near,
+      SHADOW_ORTHO_BOUNDS.far,
+    );
     multiply(shadowViewProjection, shadowProjection, shadowView);
   }
 
   function updateUvFit() {
-    const panelAspect = panelSize.width / panelSize.height;
+    const panelAspect = PROJECTED_PANEL_SIZE.width / PROJECTED_PANEL_SIZE.height;
     const bufferAspect = width / height;
     if (bufferAspect > panelAspect) {
       uvFit.scaleX = panelAspect / bufferAspect;
@@ -230,7 +307,7 @@ export function createEngine(
   }
 
   function bindMeshAttributes(targetProgram: WebGLProgram) {
-    for (let index = 0; index < 8; index += 1) {
+    for (let index = 0; index < MAX_VERTEX_ATTRIBUTES_TO_DISABLE; index += 1) {
       gl.disableVertexAttribArray(index);
     }
     const position = gl.getAttribLocation(targetProgram, "aPosition");
@@ -239,15 +316,15 @@ export function createEngine(
     gl.bindBuffer(gl.ARRAY_BUFFER, mesh.vertexBuffer);
     if (position >= 0) {
       gl.enableVertexAttribArray(position);
-      gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 28, 0);
+      gl.vertexAttribPointer(position, 3, gl.FLOAT, false, VERTEX_STRIDE_BYTES, POSITION_OFFSET_BYTES);
     }
     if (normal >= 0) {
       gl.enableVertexAttribArray(normal);
-      gl.vertexAttribPointer(normal, 3, gl.FLOAT, false, 28, 12);
+      gl.vertexAttribPointer(normal, 3, gl.FLOAT, false, VERTEX_STRIDE_BYTES, NORMAL_OFFSET_BYTES);
     }
     if (receiverId >= 0) {
       gl.enableVertexAttribArray(receiverId);
-      gl.vertexAttribPointer(receiverId, 1, gl.FLOAT, false, 28, 24);
+      gl.vertexAttribPointer(receiverId, 1, gl.FLOAT, false, VERTEX_STRIDE_BYTES, RECEIVER_ID_OFFSET_BYTES);
     }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indexBuffer);
   }
@@ -264,15 +341,15 @@ export function createEngine(
     }
     const leftLightLocation = gl.getUniformLocation(targetProgram, "uLeftLight");
     if (leftLightLocation) {
-      gl.uniform3fv(leftLightLocation, normalize(subtract([lightingSettings.leftLightX, lightingSettings.leftLightY, lightingSettings.leftLightZ], projectorTarget)));
+      gl.uniform3fv(leftLightLocation, normalize(subtract([lightingSettings.leftLightX, lightingSettings.leftLightY, lightingSettings.leftLightZ], PROJECTOR_TARGET)));
     }
     const rightLightLocation = gl.getUniformLocation(targetProgram, "uRightLight");
     if (rightLightLocation) {
-      gl.uniform3fv(rightLightLocation, normalize(subtract([lightingSettings.rightLightX, lightingSettings.rightLightY, lightingSettings.rightLightZ], projectorTarget)));
+      gl.uniform3fv(rightLightLocation, normalize(subtract([lightingSettings.rightLightX, lightingSettings.rightLightY, lightingSettings.rightLightZ], PROJECTOR_TARGET)));
     }
     const topLightLocation = gl.getUniformLocation(targetProgram, "uTopLight");
     if (topLightLocation) {
-      gl.uniform3fv(topLightLocation, normalize(subtract([lightingSettings.topLightX, lightingSettings.topLightY, lightingSettings.topLightZ], projectorTarget)));
+      gl.uniform3fv(topLightLocation, normalize(subtract([lightingSettings.topLightX, lightingSettings.topLightY, lightingSettings.topLightZ], PROJECTOR_TARGET)));
     }
     const ambientLocation = gl.getUniformLocation(targetProgram, "uAmbientFloor");
     if (ambientLocation) gl.uniform1f(ambientLocation, lightingSettings.ambient);
@@ -305,7 +382,7 @@ export function createEngine(
 
   function renderShadowMap() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
-    gl.viewport(0, 0, shadowMapSize, shadowMapSize);
+    gl.viewport(0, 0, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
     gl.clearColor(1, 1, 1, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.useProgram(shadowProgram);
@@ -343,7 +420,7 @@ export function createEngine(
       if (!disjoint) {
         const nanoseconds = Number(timerQuery.getQueryObjectEXT(query, timerQuery.QUERY_RESULT_EXT));
         if (Number.isFinite(nanoseconds)) {
-          lastGpuRenderMs = nanoseconds / 1_000_000;
+          lastGpuRenderMs = nanoseconds / GL_TIMER_NANOSECONDS_PER_MILLISECOND;
         }
       }
       timerQuery.deleteQueryEXT(query);
@@ -382,7 +459,7 @@ export function createEngine(
       pollGpuTimers();
     },
     resize() {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, MAX_DEVICE_PIXEL_RATIO);
       const rect = canvas.getBoundingClientRect();
       width = Math.max(1, Math.round(rect.width * dpr));
       height = Math.max(1, Math.round(rect.height * dpr));
@@ -432,11 +509,11 @@ export function createEngine(
       const x = Math.min(width - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * width)));
       const y = Math.min(height - 1, Math.max(0, Math.floor((1 - (clientY - rect.top) / rect.height) * height)));
       const pixel = new Uint8Array(4);
-      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      gl.readPixels(x, y, PICK_PIXEL_SIZE, PICK_PIXEL_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       draw(receiverPickProgram, true);
       const receiverPixel = new Uint8Array(4);
-      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, receiverPixel);
+      gl.readPixels(x, y, PICK_PIXEL_SIZE, PICK_PIXEL_SIZE, gl.RGBA, gl.UNSIGNED_BYTE, receiverPixel);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       if (pixel[0] === 0 && pixel[1] === 0 && pixel[2] === 0 && pixel[3] === 0) return null;
       return {
@@ -446,13 +523,13 @@ export function createEngine(
       };
     },
     orbit(dx, dy) {
-      yaw += dx * 0.006;
-      pitch = clampOrbitPitch(basePitch + pitch + dy * 0.006) - basePitch;
+      yaw += dx * ORBIT_SENSITIVITY;
+      pitch = clampOrbitPitch(basePitch + pitch + dy * ORBIT_SENSITIVITY) - basePitch;
       updateViewState();
     },
     zoom(deltaY) {
-      const scale = Math.exp(deltaY * 0.0012);
-      viewRadius = Math.max(4, Math.min(36, viewRadius * scale));
+      const scale = Math.exp(deltaY * ZOOM_SENSITIVITY);
+      viewRadius = Math.max(MIN_VIEW_RADIUS, Math.min(MAX_VIEW_RADIUS, viewRadius * scale));
       updateViewState();
     },
     snapView(direction) {
@@ -552,7 +629,7 @@ export async function loadSceneModel(): Promise<SceneMeshData> {
     const normalMatrix = new THREE.Matrix3();
     const worldPosition = new THREE.Vector3();
     const worldNormal = new THREE.Vector3();
-    let receiverId = 1;
+    let receiverId = MODEL_RECEIVER_ID_START;
 
     gltf.scene.updateMatrixWorld(true);
     gltf.scene.traverse((object) => {
@@ -565,9 +642,9 @@ export async function loadSceneModel(): Promise<SceneMeshData> {
       const normals = geometry.getAttribute("normal");
       if (!positions || !normals) return;
 
-      const nextReceiverId = mesh.name === "bg" ? 1 : receiverId + 1;
+      const nextReceiverId = mesh.name === BACKGROUND_MESH_NAME ? DEFAULT_RECEIVER_ID : receiverId + 1;
       receiverId = nextReceiverId;
-      const vertexStart = vertices.length / 7;
+      const vertexStart = vertices.length / VERTEX_FLOAT_COUNT;
       for (let index = 0; index < positions.count; index += 1) {
         position.fromBufferAttribute(positions, index);
         normal.fromBufferAttribute(normals, index);
@@ -601,7 +678,7 @@ export async function loadSceneModel(): Promise<SceneMeshData> {
     }
     return {
       vertices: new Float32Array(vertices),
-      indices: vertices.length / 7 > 65535 ? new Uint32Array(indices) : new Uint16Array(indices),
+      indices: vertices.length / VERTEX_FLOAT_COUNT > MAX_UINT16_INDEX ? new Uint32Array(indices) : new Uint16Array(indices),
     };
   } finally {
     dracoLoader.dispose();
@@ -611,24 +688,11 @@ export async function loadSceneModel(): Promise<SceneMeshData> {
 function createSceneMesh(gl: WebGLRenderingContext) {
   const vertices: number[] = [];
   const indices: number[] = [];
-  addPlane(vertices, indices, [-5.8, 2.95, -4.35], [5.8, 2.95, -4.35], [5.8, -2.95, -4.35], [-5.8, -2.95, -4.35], 1);
-  addPlane(vertices, indices, [-5.8, -2.95, -4.35], [5.8, -2.95, -4.35], [5.8, -2.95, 2.7], [-5.8, -2.95, 2.7], 2);
-
-  addBox(vertices, indices, [-2.6, -1.98, -2.82], [1.9, 0.48, 1.22], 10);
-  addBox(vertices, indices, [1.85, -2.04, -2.7], [1.65, 0.36, 1.65], 11);
-  addBox(vertices, indices, [0.35, -2.2, -1.75], [1.15, 0.3, 1.25], 12);
-  addBox(vertices, indices, [0.65, -1.76, -2.05], [1.0, 0.28, 1.15], 13);
-  addBox(vertices, indices, [0.95, -1.34, -2.35], [0.86, 0.26, 1.05], 14);
-
-  addCylinder(vertices, indices, [-0.95, -1.95, -2.85], 0.38, 2.25, 36, 20);
-  addCylinder(vertices, indices, [2.45, -1.7, -3.15], 0.42, 2.65, 36, 21);
-  addCylinder(vertices, indices, [-3.35, -2.05, -2.95], 0.5, 0.55, 36, 22);
-  addCylinder(vertices, indices, [3.05, -2.28, -2.05], 0.64, 0.36, 36, 23);
-
-  addBox(vertices, indices, [-1.55, 0.3, -3.55], [1.45, 0.16, 0.92], 30);
-  addBox(vertices, indices, [0.35, 0.95, -3.7], [1.1, 0.16, 0.92], 31);
-  addBox(vertices, indices, [2.35, 0.25, -3.5], [1.35, 0.16, 0.86], 32);
-  addBox(vertices, indices, [3.15, -0.55, -3.25], [0.82, 0.14, 0.7], 33);
+  for (const plane of fallbackPlanes) addPlane(vertices, indices, ...plane.points, plane.receiverId);
+  for (const box of fallbackBoxes) addBox(vertices, indices, box.center, box.size, box.receiverId);
+  for (const cylinder of fallbackCylinders) {
+    addCylinder(vertices, indices, cylinder.center, cylinder.radius, cylinder.height, CYLINDER_SEGMENTS, cylinder.receiverId);
+  }
 
   return uploadSceneMesh(gl, { vertices: new Float32Array(vertices), indices: new Uint16Array(indices) });
 }
@@ -647,7 +711,7 @@ function uploadSceneMesh(gl: WebGLRenderingContext, sceneMesh: SceneMeshData) {
 
 function addPlane(vertices: number[], indices: number[], a: Vec3, b: Vec3, c: Vec3, d: Vec3, receiverId: number) {
   const normal = normalize(cross(subtract(b, a), subtract(c, a)));
-  const start = vertices.length / 7;
+  const start = vertices.length / VERTEX_FLOAT_COUNT;
   for (const point of [a, b, c, d]) vertices.push(...point, ...normal, receiverId);
   indices.push(start, start + 1, start + 2, start, start + 2, start + 3);
 }
@@ -684,7 +748,7 @@ function addCylinder(
 ) {
   const [cx, cy, cz] = center;
   const halfHeight = height / 2;
-  const sideStart = vertices.length / 7;
+  const sideStart = vertices.length / VERTEX_FLOAT_COUNT;
   for (let index = 0; index <= segments; index += 1) {
     const angle = (index / segments) * Math.PI * 2;
     const x = Math.cos(angle);
@@ -697,7 +761,7 @@ function addCylinder(
     indices.push(base, base + 1, base + 3, base, base + 3, base + 2);
   }
 
-  const topCenter = vertices.length / 7;
+  const topCenter = vertices.length / VERTEX_FLOAT_COUNT;
   vertices.push(cx, cy + halfHeight, cz, 0, 1, 0, receiverId);
   for (let index = 0; index <= segments; index += 1) {
     const angle = (index / segments) * Math.PI * 2;
@@ -707,7 +771,7 @@ function addCylinder(
     indices.push(topCenter, topCenter + index, topCenter + index + 1);
   }
 
-  const bottomCenter = vertices.length / 7;
+  const bottomCenter = vertices.length / VERTEX_FLOAT_COUNT;
   vertices.push(cx, cy - halfHeight, cz, 0, -1, 0, receiverId);
   for (let index = 0; index <= segments; index += 1) {
     const angle = (index / segments) * Math.PI * 2;
@@ -819,6 +883,6 @@ function normalize(a: Vec3): Vec3 {
 }
 
 function decode16(high: number, low: number) {
-  const packed = high * 256 + low;
-  return Math.min(1, Math.max(0, (packed - 1) / 65534));
+  const packed = high * PICK_HIGH_BYTE_MULTIPLIER + low;
+  return Math.min(1, Math.max(0, (packed - PICK_DECODE_OFFSET) / PICK_DECODE_MAX));
 }

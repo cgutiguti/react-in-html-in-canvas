@@ -2,6 +2,13 @@ import { Crosshair } from "lucide-react";
 import { Button } from "../button";
 import type { PerformanceStats } from "../../lib/usePerformanceStats";
 
+const GRAPH_WIDTH = 264;
+const GRAPH_HEIGHT = 56;
+const GRAPH_MAX_MS = 40;
+const GRAPH_HISTORY_LIMIT = 80;
+const SIXTY_FPS_FRAME_MS = 16.67;
+const THIRTY_FPS_FRAME_MS = 33.33;
+
 export function DebugOverlay({
   debugVisible,
   hitboxesVisible,
@@ -84,17 +91,14 @@ function PerfGraph({
   cpuHistory: number[];
   gpuHistory: Array<number | null>;
 }) {
-  const width = 264;
-  const height = 56;
-  const maxMs = 40;
-  const cpuPath = createGraphPath(cpuHistory, width, height, maxMs);
-  const gpuPath = createGraphPath(gpuHistory, width, height, maxMs);
+  const cpuPath = createGraphPath(cpuHistory, GRAPH_WIDTH, GRAPH_HEIGHT, GRAPH_MAX_MS);
+  const gpuPath = createGraphPath(gpuHistory, GRAPH_WIDTH, GRAPH_HEIGHT, GRAPH_MAX_MS);
 
   return (
     <div className="mb-3 border border-slate-700/80 bg-slate-950/70 p-2">
-      <svg className="block h-14 w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="CPU and GPU frame time graph">
-        <line x1="0" y1={height - (16.67 / maxMs) * height} x2={width} y2={height - (16.67 / maxMs) * height} stroke="rgba(148,163,184,.28)" strokeWidth="1" />
-        <line x1="0" y1={height - (33.33 / maxMs) * height} x2={width} y2={height - (33.33 / maxMs) * height} stroke="rgba(148,163,184,.18)" strokeWidth="1" />
+      <svg className="block h-14 w-full" viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`} role="img" aria-label="CPU and GPU frame time graph">
+        <line x1="0" y1={GRAPH_HEIGHT - (SIXTY_FPS_FRAME_MS / GRAPH_MAX_MS) * GRAPH_HEIGHT} x2={GRAPH_WIDTH} y2={GRAPH_HEIGHT - (SIXTY_FPS_FRAME_MS / GRAPH_MAX_MS) * GRAPH_HEIGHT} stroke="rgba(148,163,184,.28)" strokeWidth="1" />
+        <line x1="0" y1={GRAPH_HEIGHT - (THIRTY_FPS_FRAME_MS / GRAPH_MAX_MS) * GRAPH_HEIGHT} x2={GRAPH_WIDTH} y2={GRAPH_HEIGHT - (THIRTY_FPS_FRAME_MS / GRAPH_MAX_MS) * GRAPH_HEIGHT} stroke="rgba(148,163,184,.18)" strokeWidth="1" />
         {cpuPath && <path d={cpuPath} fill="none" stroke="#67e8f9" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
         {gpuPath && <path d={gpuPath} fill="none" stroke="#fbbf24" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
       </svg>
@@ -108,7 +112,7 @@ function PerfGraph({
 }
 
 function createGraphPath(history: Array<number | null>, width: number, height: number, maxMs: number) {
-  const samples = history.slice(-80);
+  const samples = history.slice(-GRAPH_HISTORY_LIMIT);
   const step = samples.length > 1 ? width / (samples.length - 1) : width;
   let path = "";
   let drawing = false;

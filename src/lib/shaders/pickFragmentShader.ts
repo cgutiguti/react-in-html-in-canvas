@@ -2,9 +2,13 @@ export const pickFragmentShader = `
 precision mediump float;
 uniform vec4 uProjectorUvFit;
 varying vec4 vProjected;
+const float PICK_ENCODE_MAX = 65534.0;
+const float PICK_ENCODE_OFFSET = 1.0;
+const float BYTE_RANGE = 255.0;
+const float HIGH_BYTE_DIVISOR = 256.0;
 vec2 encode16(float value) {
-  float encodedValue = floor(clamp(value, 0.0, 1.0) * 65534.0) + 1.0;
-  return vec2(floor(encodedValue / 256.0), mod(encodedValue, 256.0)) / 255.0;
+  float encodedValue = floor(clamp(value, 0.0, 1.0) * PICK_ENCODE_MAX) + PICK_ENCODE_OFFSET;
+  return vec2(floor(encodedValue / HIGH_BYTE_DIVISOR), mod(encodedValue, HIGH_BYTE_DIVISOR)) / BYTE_RANGE;
 }
 void main() {
   vec3 ndc = vProjected.xyz / vProjected.w;

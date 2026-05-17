@@ -1,6 +1,18 @@
 import React, { useRef } from "react";
 import type { Vec3, ViewState } from "../../types/projector";
 
+const GIZMO_CENTER = 72;
+const GIZMO_AXIS_RADIUS = 44;
+const GIZMO_VIEWBOX_SIZE = 144;
+const axes = [
+  { key: "+X", label: "X", direction: [1, 0, 0] as Vec3, color: "#ef4444" },
+  { key: "-X", label: "X", direction: [-1, 0, 0] as Vec3, color: "#ef4444", negative: true },
+  { key: "+Y", label: "Y", direction: [0, 1, 0] as Vec3, color: "#22c55e" },
+  { key: "-Y", label: "Y", direction: [0, -1, 0] as Vec3, color: "#22c55e", negative: true },
+  { key: "+Z", label: "Z", direction: [0, 0, 1] as Vec3, color: "#3b82f6" },
+  { key: "-Z", label: "Z", direction: [0, 0, -1] as Vec3, color: "#3b82f6", negative: true },
+];
+
 export function ViewportGizmo({
   view,
   onOrbit,
@@ -13,14 +25,6 @@ export function ViewportGizmo({
   onReset: () => void;
 }) {
   const dragRef = useRef<{ x: number; y: number } | null>(null);
-  const axes = [
-    { key: "+X", label: "X", direction: [1, 0, 0] as Vec3, color: "#ef4444" },
-    { key: "-X", label: "X", direction: [-1, 0, 0] as Vec3, color: "#ef4444", negative: true },
-    { key: "+Y", label: "Y", direction: [0, 1, 0] as Vec3, color: "#22c55e" },
-    { key: "-Y", label: "Y", direction: [0, -1, 0] as Vec3, color: "#22c55e", negative: true },
-    { key: "+Z", label: "Z", direction: [0, 0, 1] as Vec3, color: "#3b82f6" },
-    { key: "-Z", label: "Z", direction: [0, 0, -1] as Vec3, color: "#3b82f6", negative: true },
-  ];
   const projected = axes
     .map((axis) => ({ ...axis, point: projectGizmoAxis(axis.direction, view) }))
     .sort((a, b) => a.point.depth - b.point.depth);
@@ -47,7 +51,7 @@ export function ViewportGizmo({
       }}
       onDoubleClick={onReset}
     >
-      <svg className="h-full w-full" viewBox="0 0 144 144" role="presentation">
+      <svg className="h-full w-full" viewBox={`0 0 ${GIZMO_VIEWBOX_SIZE} ${GIZMO_VIEWBOX_SIZE}`} role="presentation">
         <defs>
           <radialGradient id="viewport-gizmo-globe" cx="36%" cy="28%" r="70%">
             <stop offset="0%" stopColor="#ffffff" />
@@ -55,16 +59,16 @@ export function ViewportGizmo({
             <stop offset="100%" stopColor="#cbd5e1" />
           </radialGradient>
         </defs>
-        <circle cx="72" cy="72" r="38" fill="url(#viewport-gizmo-globe)" stroke="rgba(15,23,42,.16)" />
-        <ellipse cx="72" cy="72" rx="38" ry="11" fill="none" stroke="rgba(15,23,42,.12)" />
-        <ellipse cx="72" cy="72" rx="11" ry="38" fill="none" stroke="rgba(15,23,42,.1)" />
+        <circle cx={GIZMO_CENTER} cy={GIZMO_CENTER} r="38" fill="url(#viewport-gizmo-globe)" stroke="rgba(15,23,42,.16)" />
+        <ellipse cx={GIZMO_CENTER} cy={GIZMO_CENTER} rx="38" ry="11" fill="none" stroke="rgba(15,23,42,.12)" />
+        <ellipse cx={GIZMO_CENTER} cy={GIZMO_CENTER} rx="11" ry="38" fill="none" stroke="rgba(15,23,42,.1)" />
         {projected.map((axis) => {
           const muted = axis.point.depth < 0;
           return (
             <g key={axis.key} opacity={muted ? 0.38 : 1}>
               <line
-                x1="72"
-                y1="72"
+                x1={GIZMO_CENTER}
+                y1={GIZMO_CENTER}
                 x2={axis.point.x}
                 y2={axis.point.y}
                 stroke={axis.color}
@@ -113,15 +117,14 @@ export function ViewportGizmo({
 
 function projectGizmoAxis(axis: Vec3, view: ViewState | null) {
   if (!view) {
-    return { x: 72 + axis[0] * 44, y: 72 - axis[1] * 44, depth: axis[2] };
+    return { x: GIZMO_CENTER + axis[0] * GIZMO_AXIS_RADIUS, y: GIZMO_CENTER - axis[1] * GIZMO_AXIS_RADIUS, depth: axis[2] };
   }
   const x = dot(axis, view.right);
   const y = -dot(axis, view.up);
   const depth = dot(axis, view.forward);
-  const radius = 44;
   return {
-    x: 72 + x * radius,
-    y: 72 + y * radius,
+    x: GIZMO_CENTER + x * GIZMO_AXIS_RADIUS,
+    y: GIZMO_CENTER + y * GIZMO_AXIS_RADIUS,
     depth,
   };
 }

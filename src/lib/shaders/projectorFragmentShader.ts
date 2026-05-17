@@ -16,8 +16,12 @@ uniform vec4 uProjectorUvFit;
 varying vec3 vNormal;
 varying vec4 vProjected;
 varying vec4 vShadowCoord;
+const vec3 HIT_MAP_COLOR = vec3(1.0, 0.84, 0.08);
+const float HIT_MAP_ALPHA_THRESHOLD = 0.08;
+const float HIT_MAP_BLEND = 0.22;
+const vec4 DEPTH_DECODE = vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0);
 float decodeDepth(vec4 rgbaDepth) {
-  return dot(rgbaDepth, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+  return dot(rgbaDepth, DEPTH_DECODE);
 }
 void main() {
   vec3 ndc = vProjected.xyz / vProjected.w;
@@ -40,8 +44,8 @@ void main() {
   base *= 1.0 - shadowed * uShadowStrength;
   vec4 projected = texture2D(uDomTexture, uv);
   vec3 color = mix(base, projected.rgb, projected.a * inside);
-  if (uShowHitMap > 0.5 && inside > 0.5 && projected.a > 0.08) {
-    color = mix(color, vec3(1.0, 0.84, 0.08), 0.22);
+  if (uShowHitMap > 0.5 && inside > 0.5 && projected.a > HIT_MAP_ALPHA_THRESHOLD) {
+    color = mix(color, HIT_MAP_COLOR, HIT_MAP_BLEND);
   }
   gl_FragColor = vec4(color, 1.0);
 }

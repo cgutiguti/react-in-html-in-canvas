@@ -7,6 +7,8 @@ import type { Vec3, ViewState } from "../types/projector";
 
 type ProjectedPick = { u: number; v: number; receiverId: number };
 
+const HTML_TEXTURE_PIXEL_RATIO = 2;
+
 export function useHtmlInCanvasController({
   panelCss,
   panelSize,
@@ -30,7 +32,7 @@ export function useHtmlInCanvasController({
     const panel = panelRef.current;
     if (!canvas || !projectionSource || !panel) return;
 
-    const texture = new HtmlToCanvasTexture(panel, { ...panelSize, pixelRatio: 2 });
+    const texture = new HtmlToCanvasTexture(panel, { ...panelSize, pixelRatio: HTML_TEXTURE_PIXEL_RATIO });
     viewportRef.current = createProjectedDomViewport(panel);
     canvas.setAttribute("layoutsubtree", "");
     canvas.layoutSubtree = true;
