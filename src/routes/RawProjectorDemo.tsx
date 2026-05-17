@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
-import { ArrowLeft, Crosshair } from "lucide-react";
+import { Crosshair } from "lucide-react";
 import { Button } from "../components/button";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
@@ -43,7 +43,6 @@ type Engine = {
   getViewState(): ViewState;
   setSceneMesh(sceneMesh: SceneMeshData): void;
   setHitMapVisible(visible: boolean): void;
-  setLighting(settings: LightingSettings): void;
 };
 
 type ViewState = {
@@ -146,7 +145,6 @@ export function RawProjectorDemo() {
   const engineRef = useRef<Engine | null>(null);
   const routingRef = useRef(false);
   const orbitRef = useRef<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 });
-  const [lighting, setLighting] = useState<LightingSettings>(initialLighting);
   const [debugVisible, setDebugVisible] = useState(false);
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [status, setStatus] = useState("raw WebGL renderer readying");
@@ -388,11 +386,6 @@ export function RawProjectorDemo() {
     engineRef.current?.render();
   }, [debugVisible, hitboxesVisible]);
 
-  useEffect(() => {
-    engineRef.current?.setLighting(lighting);
-    engineRef.current?.render();
-  }, [lighting]);
-
   return (
     <main className="min-h-screen bg-zinc-100 text-slate-950">
       <style>{panelCss}</style>
@@ -408,16 +401,6 @@ export function RawProjectorDemo() {
 
       <div className="pointer-events-none fixed left-5 top-5 z-10 text-sm text-slate-700">
         <div className="pointer-events-auto flex max-w-[calc(100vw-40px)] items-center gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              window.history.pushState({}, "", "/three-projector");
-              window.dispatchEvent(new PopStateEvent("popstate"));
-            }}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Three route
-          </Button>
           <Button variant={debugVisible ? "default" : "secondary"} onClick={() => setDebugVisible((value) => !value)}>
             debug
           </Button>
@@ -433,7 +416,6 @@ export function RawProjectorDemo() {
         </div>
       </div>
       <ViewportGizmo view={viewState} onOrbit={orbitFromGizmo} onSnap={snapView} onReset={resetView} />
-      {debugVisible && <LightingPanel settings={lighting} onChange={setLighting} />}
     </main>
   );
 }
@@ -561,85 +543,6 @@ function projectGizmoAxis(axis: Vec3, view: ViewState | null) {
     y: 72 + y * radius,
     depth,
   };
-}
-
-function LightingPanel({
-  settings,
-  onChange,
-}: {
-  settings: LightingSettings;
-  onChange: React.Dispatch<React.SetStateAction<LightingSettings>>;
-}) {
-  return (
-    <div className="fixed bottom-5 right-5 z-10 w-[300px] rounded-md border border-slate-200 bg-white/90 p-3 text-xs text-slate-800 shadow-lg backdrop-blur">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">lighting</h2>
-        <Button variant="secondary" onClick={() => onChange(initialLighting)}>
-          reset
-        </Button>
-      </div>
-      <LightingSlider label="ambient floor" min={0.8} max={1} step={0.001} value={settings.ambient} onChange={(ambient) => onChange((current) => ({ ...current, ambient }))} />
-      <div className="mt-3 border-t border-slate-200 pt-3">
-        <div className="mb-2 font-semibold text-slate-600">left camera light</div>
-        <LightingSlider label="left gain" min={0} max={1.5} step={0.01} value={settings.leftDiffuse} onChange={(leftDiffuse) => onChange((current) => ({ ...current, leftDiffuse }))} />
-        <LightingSlider label="left x" min={-8} max={8} step={0.05} value={settings.leftLightX} onChange={(leftLightX) => onChange((current) => ({ ...current, leftLightX }))} />
-        <LightingSlider label="left y" min={-2} max={8} step={0.05} value={settings.leftLightY} onChange={(leftLightY) => onChange((current) => ({ ...current, leftLightY }))} />
-        <LightingSlider label="left z" min={4} max={28} step={0.05} value={settings.leftLightZ} onChange={(leftLightZ) => onChange((current) => ({ ...current, leftLightZ }))} />
-      </div>
-      <div className="mt-3 border-t border-slate-200 pt-3">
-        <div className="mb-2 font-semibold text-slate-600">right camera light</div>
-        <LightingSlider label="right gain" min={0} max={1.5} step={0.01} value={settings.rightDiffuse} onChange={(rightDiffuse) => onChange((current) => ({ ...current, rightDiffuse }))} />
-        <LightingSlider label="right x" min={-8} max={8} step={0.05} value={settings.rightLightX} onChange={(rightLightX) => onChange((current) => ({ ...current, rightLightX }))} />
-        <LightingSlider label="right y" min={-2} max={8} step={0.05} value={settings.rightLightY} onChange={(rightLightY) => onChange((current) => ({ ...current, rightLightY }))} />
-        <LightingSlider label="right z" min={4} max={28} step={0.05} value={settings.rightLightZ} onChange={(rightLightZ) => onChange((current) => ({ ...current, rightLightZ }))} />
-      </div>
-      <div className="mt-3 border-t border-slate-200 pt-3">
-        <div className="mb-2 font-semibold text-slate-600">top light</div>
-        <LightingSlider label="top gain" min={0} max={1.5} step={0.01} value={settings.topDiffuse} onChange={(topDiffuse) => onChange((current) => ({ ...current, topDiffuse }))} />
-        <LightingSlider label="top x" min={-8} max={8} step={0.05} value={settings.topLightX} onChange={(topLightX) => onChange((current) => ({ ...current, topLightX }))} />
-        <LightingSlider label="top y" min={-2} max={12} step={0.05} value={settings.topLightY} onChange={(topLightY) => onChange((current) => ({ ...current, topLightY }))} />
-        <LightingSlider label="top z" min={-8} max={8} step={0.05} value={settings.topLightZ} onChange={(topLightZ) => onChange((current) => ({ ...current, topLightZ }))} />
-      </div>
-      <div className="mt-3 border-t border-slate-200 pt-3">
-        <div className="mb-2 font-semibold text-slate-600">shadow map</div>
-        <LightingSlider label="shadow strength" min={0} max={0.9} step={0.01} value={settings.shadowStrength} onChange={(shadowStrength) => onChange((current) => ({ ...current, shadowStrength }))} />
-        <LightingSlider label="shadow bias" min={0} max={0.04} step={0.001} value={settings.shadowBias} onChange={(shadowBias) => onChange((current) => ({ ...current, shadowBias }))} />
-      </div>
-    </div>
-  );
-}
-
-function LightingSlider({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="mb-2 grid gap-1">
-      <span className="flex justify-between font-medium">
-        {label}
-        <strong>{value.toFixed(step < 0.01 ? 3 : 2)}</strong>
-      </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-    </label>
-  );
 }
 
 function ProjectedPanel({
@@ -1036,9 +939,6 @@ function createRawProjectorEngine(
     },
     setHitMapVisible(visible) {
       hitMapVisible = visible;
-    },
-    setLighting(settings) {
-      lightingSettings = { ...settings };
     },
     dispose() {
       gl.deleteProgram(program);
