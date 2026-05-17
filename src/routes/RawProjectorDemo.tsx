@@ -2,15 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
-import { Crosshair } from "lucide-react";
-import { Button } from "../components/button";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
-import { RootComponents } from "../shadcn-demo/components";
-import { ShadcnPortalProvider } from "../shadcn-demo/portal";
-import { TooltipProvider } from "../shadcn-demo/ui/tooltip";
-import { usePerformanceStats, type PerformanceStats, type RenderPerformanceMetrics } from "./usePerformanceStats";
+import { DebugOverlay } from "./DebugOverlay";
+import { ProjectedPanel } from "./ProjectedPanel";
+import type { Vec3, ViewState } from "./projectorTypes";
+import { usePerformanceStats, type RenderPerformanceMetrics } from "./usePerformanceStats";
+import { ViewportGizmo } from "./ViewportGizmo";
 
 type LightingSettings = {
   ambient: number;
@@ -45,15 +44,6 @@ type Engine = {
   setSceneMesh(sceneMesh: SceneMeshData): void;
   setHitMapVisible(visible: boolean): void;
   getPerformanceMetrics(): RenderPerformanceMetrics;
-};
-
-type ViewState = {
-  yaw: number;
-  pitch: number;
-  radius: number;
-  right: Vec3;
-  up: Vec3;
-  forward: Vec3;
 };
 
 type WebGLTimerQueryEXT = object;
@@ -411,294 +401,19 @@ export function RawProjectorDemo() {
         </div>
       </canvas>
 
-      <div className="pointer-events-none fixed bottom-5 left-5 z-10 flex max-w-[calc(100vw-40px)] flex-col items-start gap-2 text-sm text-slate-700">
-        {debugVisible && <PerformancePanel stats={perfStats} />}
-        <div className="pointer-events-auto flex max-w-full items-center gap-2">
-          <Button
-            className="rounded-none"
-            variant={debugVisible ? "default" : "secondary"}
-            onClick={() => setDebugVisible((value) => !value)}
-          >
-            debug
-          </Button>
-          {debugVisible && (
-            <>
-              <Button className="rounded-none" variant="secondary" onClick={() => setHitboxesVisible((value) => !value)}>
-                <Crosshair className="h-4 w-4" />
-                {hitboxesVisible ? "hide" : "show"} projected hit map
-              </Button>
-              <div
-                className="max-w-[48rem] overflow-hidden truncate whitespace-nowrap bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100"
-                title={status}
-              >
-                {status}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <DebugOverlay
+        debugVisible={debugVisible}
+        hitboxesVisible={hitboxesVisible}
+        status={status}
+        perfStats={perfStats}
+        onDebugVisibleChange={setDebugVisible}
+        onHitboxesVisibleChange={setHitboxesVisible}
+      />
       <ViewportGizmo view={viewState} onOrbit={orbitFromGizmo} onSnap={snapView} onReset={resetView} />
     </main>
   );
 }
 
-function PerformancePanel({ stats }: { stats: PerformanceStats }) {
-  return (
-    <div className="pointer-events-none w-80 border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
-      <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-cyan-300/80">
-        <span>performance</span>
-        <span>{stats.dpr.toFixed(2)} dpr</span>
-      </div>
-      <PerfGraph cpuHistory={stats.cpuHistory} gpuHistory={stats.gpuHistory} />
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <span className="text-slate-400">fps</span>
-        <strong className="text-right font-semibold text-cyan-50">{stats.fps}</strong>
-        <span className="text-slate-400">raf frame</span>
-        <strong className="text-right font-semibold text-cyan-50">{stats.frameMs.toFixed(1)} ms</strong>
-        <span className="text-slate-400">cpu render</span>
-        <strong className="text-right font-semibold text-cyan-50">{stats.cpuRenderMs.toFixed(1)} ms</strong>
-        <span className="text-slate-400">gpu render</span>
-        <strong className="text-right font-semibold text-amber-200">{formatMilliseconds(stats.gpuRenderMs)}</strong>
-        <span className="text-slate-400">heap</span>
-        <strong className="whitespace-nowrap text-right font-semibold text-cyan-50">
-          {formatMegabytes(stats.heapUsedMb)} / {formatMegabytes(stats.heapTotalMb)}
-        </strong>
-        <span className="text-slate-400">canvas</span>
-        <strong className="text-right font-semibold text-cyan-50">
-          {stats.canvasWidth}x{stats.canvasHeight}
-        </strong>
-      </div>
-    </div>
-  );
-}
-
-function PerfGraph({
-  cpuHistory,
-  gpuHistory,
-}: {
-  cpuHistory: number[];
-  gpuHistory: Array<number | null>;
-}) {
-  const width = 264;
-  const height = 56;
-  const maxMs = 40;
-  const cpuPath = createGraphPath(cpuHistory, width, height, maxMs);
-  const gpuPath = createGraphPath(gpuHistory, width, height, maxMs);
-
-  return (
-    <div className="mb-3 border border-slate-700/80 bg-slate-950/70 p-2">
-      <svg className="block h-14 w-full" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="CPU and GPU frame time graph">
-        <line x1="0" y1={height - (16.67 / maxMs) * height} x2={width} y2={height - (16.67 / maxMs) * height} stroke="rgba(148,163,184,.28)" strokeWidth="1" />
-        <line x1="0" y1={height - (33.33 / maxMs) * height} x2={width} y2={height - (33.33 / maxMs) * height} stroke="rgba(148,163,184,.18)" strokeWidth="1" />
-        {cpuPath && <path d={cpuPath} fill="none" stroke="#67e8f9" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
-        {gpuPath && <path d={gpuPath} fill="none" stroke="#fbbf24" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
-      </svg>
-      <div className="mt-1 flex items-center gap-3 text-[10px] uppercase tracking-wide">
-        <span className="text-cyan-200">cpu</span>
-        <span className="text-amber-200">gpu</span>
-        <span className="ml-auto text-slate-500">16 / 33 ms</span>
-      </div>
-    </div>
-  );
-}
-
-function createGraphPath(history: Array<number | null>, width: number, height: number, maxMs: number) {
-  const samples = history.slice(-80);
-  const step = samples.length > 1 ? width / (samples.length - 1) : width;
-  let path = "";
-  let drawing = false;
-
-  samples.forEach((value, index) => {
-    if (value === null) {
-      drawing = false;
-      return;
-    }
-    const x = index * step;
-    const y = height - Math.min(maxMs, Math.max(0, value)) / maxMs * height;
-    path += `${drawing ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
-    drawing = true;
-  });
-
-  return path;
-}
-
-function formatMegabytes(value: number | null) {
-  return value === null ? "n/a" : `${value.toFixed(1)} mb`;
-}
-
-function formatMilliseconds(value: number | null) {
-  return value === null ? "n/a" : `${value.toFixed(1)} ms`;
-}
-
-function ViewportGizmo({
-  view,
-  onOrbit,
-  onSnap,
-  onReset,
-}: {
-  view: ViewState | null;
-  onOrbit: (dx: number, dy: number) => void;
-  onSnap: (direction: Vec3) => void;
-  onReset: () => void;
-}) {
-  const dragRef = useRef<{ x: number; y: number } | null>(null);
-  const axes = [
-    { key: "+X", label: "X", direction: [1, 0, 0] as Vec3, color: "#ef4444" },
-    { key: "-X", label: "X", direction: [-1, 0, 0] as Vec3, color: "#ef4444", negative: true },
-    { key: "+Y", label: "Y", direction: [0, 1, 0] as Vec3, color: "#22c55e" },
-    { key: "-Y", label: "Y", direction: [0, -1, 0] as Vec3, color: "#22c55e", negative: true },
-    { key: "+Z", label: "Z", direction: [0, 0, 1] as Vec3, color: "#3b82f6" },
-    { key: "-Z", label: "Z", direction: [0, 0, -1] as Vec3, color: "#3b82f6", negative: true },
-  ];
-  const projected = axes
-    .map((axis) => ({ ...axis, point: projectGizmoAxis(axis.direction, view) }))
-    .sort((a, b) => a.point.depth - b.point.depth);
-
-  return (
-    <div
-      className="fixed right-5 top-5 z-20 h-36 w-36 select-none rounded-full bg-white/65 shadow-lg ring-1 ring-slate-900/10 backdrop-blur"
-      aria-label="Viewport orientation"
-      onPointerDown={(event) => {
-        if ((event.target as HTMLElement).closest("button")) return;
-        dragRef.current = { x: event.clientX, y: event.clientY };
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        if (!dragRef.current) return;
-        const dx = event.clientX - dragRef.current.x;
-        const dy = event.clientY - dragRef.current.y;
-        dragRef.current = { x: event.clientX, y: event.clientY };
-        onOrbit(dx, dy);
-      }}
-      onPointerUp={(event) => {
-        dragRef.current = null;
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }}
-      onDoubleClick={onReset}
-    >
-      <svg className="h-full w-full" viewBox="0 0 144 144" role="presentation">
-        <defs>
-          <radialGradient id="viewport-gizmo-globe" cx="36%" cy="28%" r="70%">
-            <stop offset="0%" stopColor="#ffffff" />
-            <stop offset="72%" stopColor="#eef2f7" />
-            <stop offset="100%" stopColor="#cbd5e1" />
-          </radialGradient>
-        </defs>
-        <circle cx="72" cy="72" r="38" fill="url(#viewport-gizmo-globe)" stroke="rgba(15,23,42,.16)" />
-        <ellipse cx="72" cy="72" rx="38" ry="11" fill="none" stroke="rgba(15,23,42,.12)" />
-        <ellipse cx="72" cy="72" rx="11" ry="38" fill="none" stroke="rgba(15,23,42,.1)" />
-        {projected.map((axis) => {
-          const muted = axis.point.depth < 0;
-          return (
-            <g key={axis.key} opacity={muted ? 0.38 : 1}>
-              <line
-                x1="72"
-                y1="72"
-                x2={axis.point.x}
-                y2={axis.point.y}
-                stroke={axis.color}
-                strokeWidth={muted ? 2 : 3}
-                strokeLinecap="round"
-              />
-            </g>
-          );
-        })}
-      </svg>
-      {projected.map((axis) => (
-        <button
-          key={axis.key}
-          type="button"
-          title={`${axis.negative ? "Negative " : ""}${axis.label} view`}
-          className="absolute grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/80 text-xs font-bold text-white shadow-md transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-slate-900/20"
-          style={{
-            left: axis.point.x,
-            top: axis.point.y,
-            backgroundColor: axis.color,
-            opacity: axis.point.depth < 0 ? 0.55 : 1,
-            zIndex: axis.point.depth < 0 ? 1 : 2,
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-            onSnap(axis.direction);
-          }}
-        >
-          {axis.negative ? `-${axis.label}` : axis.label}
-        </button>
-      ))}
-      <button
-        type="button"
-        title="Reset view"
-        className="absolute left-1/2 top-1/2 grid h-8 w-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white/90 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/10 hover:bg-white"
-        onClick={(event) => {
-          event.stopPropagation();
-          onReset();
-        }}
-      >
-        ⌂
-      </button>
-    </div>
-  );
-}
-
-function projectGizmoAxis(axis: Vec3, view: ViewState | null) {
-  if (!view) {
-    return { x: 72 + axis[0] * 44, y: 72 - axis[1] * 44, depth: axis[2] };
-  }
-  const x = dot(axis, view.right);
-  const y = -dot(axis, view.up);
-  const depth = dot(axis, view.forward);
-  const radius = 44;
-  return {
-    x: 72 + x * radius,
-    y: 72 + y * radius,
-    depth,
-  };
-}
-
-function ProjectedPanel({
-  panelRef,
-}: {
-  panelRef: React.RefObject<HTMLDivElement | null>;
-}) {
-  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null);
-  const setPanelNode = React.useCallback(
-    (node: HTMLDivElement | null) => {
-      (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-      setPortalContainer(node);
-    },
-    [panelRef],
-  );
-
-  return (
-    <div ref={setPanelNode} className="raw-projector-panel style-nova">
-      <header className="shadcn-topbar">
-        <div className="shadcn-mark" />
-        <nav className="shadcn-nav">
-          <span>Docs</span>
-          <span>Components</span>
-          <span>Blocks</span>
-          <span>Charts</span>
-          <span>Directory</span>
-          <span>Create</span>
-        </nav>
-        <div className="shadcn-search">Search documentation...</div>
-        <div className="shadcn-mini">
-          <span>◕ 115k</span>
-          <span>▯</span>
-          <span>◐</span>
-        </div>
-        <button className="shadcn-new" type="button">＋ New</button>
-      </header>
-      <main className="shadcn-stage theme-container">
-        <ShadcnPortalProvider container={portalContainer}>
-          <TooltipProvider>
-            <RootComponents />
-          </TooltipProvider>
-        </ShadcnPortalProvider>
-      </main>
-    </div>
-  );
-}
 function createRawProjectorEngine(
   canvas: HTMLCanvasElement,
   domElement: HTMLElement,
@@ -1466,8 +1181,6 @@ function addCylinder(
     indices.push(bottomCenter, bottomCenter + index + 1, bottomCenter + index);
   }
 }
-
-type Vec3 = [number, number, number];
 
 function mat4() {
   const out = new Float32Array(16);
