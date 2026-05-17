@@ -10,6 +10,7 @@ import { createProjectedDomViewport, type ProjectedDomViewport } from "../projec
 import { RootComponents } from "../shadcn-demo/components";
 import { ShadcnPortalProvider } from "../shadcn-demo/portal";
 import { TooltipProvider } from "../shadcn-demo/ui/tooltip";
+import { usePerformanceStats, type PerformanceStats, type RenderPerformanceMetrics } from "./usePerformanceStats";
 
 type LightingSettings = {
   ambient: number;
@@ -53,34 +54,6 @@ type ViewState = {
   right: Vec3;
   up: Vec3;
   forward: Vec3;
-};
-
-type PerformanceStats = {
-  fps: number;
-  frameMs: number;
-  cpuRenderMs: number;
-  gpuRenderMs: number | null;
-  cpuHistory: number[];
-  gpuHistory: Array<number | null>;
-  heapUsedMb: number | null;
-  heapTotalMb: number | null;
-  heapLimitMb: number | null;
-  canvasWidth: number;
-  canvasHeight: number;
-  dpr: number;
-};
-
-type RenderPerformanceMetrics = {
-  cpuRenderMs: number;
-  gpuRenderMs: number | null;
-};
-
-type PerformanceWithMemory = Performance & {
-  memory?: {
-    usedJSHeapSize: number;
-    totalJSHeapSize: number;
-    jsHeapSizeLimit: number;
-  };
 };
 
 type WebGLTimerQueryEXT = object;
@@ -176,7 +149,6 @@ button { appearance: none; -webkit-appearance: none; }
   margin: 52px auto 0;
   display: block;
 }
-.footer { position: absolute; bottom: 18px; left: 0; right: 0; text-align: center; color: #71717a; }
 `;
 
 export function RawProjectorDemo() {
@@ -470,81 +442,6 @@ export function RawProjectorDemo() {
   );
 }
 
-function usePerformanceStats(
-  active: boolean,
-  canvasRef: React.RefObject<HTMLCanvasElement | null>,
-  engineRef: React.RefObject<Engine | null>,
-) {
-  const [stats, setStats] = useState<PerformanceStats>({
-    fps: 0,
-    frameMs: 0,
-    cpuRenderMs: 0,
-    gpuRenderMs: null,
-    cpuHistory: [],
-    gpuHistory: [],
-    heapUsedMb: null,
-    heapTotalMb: null,
-    heapLimitMb: null,
-    canvasWidth: 0,
-    canvasHeight: 0,
-    dpr: typeof window === "undefined" ? 1 : window.devicePixelRatio || 1,
-  });
-
-  useEffect(() => {
-    if (!active) return;
-
-    let frame = 0;
-    let frames = 0;
-    let frameMsTotal = 0;
-    let lastFrameTime = performance.now();
-    let lastPublishTime = lastFrameTime;
-    let cpuHistory: number[] = [];
-    let gpuHistory: Array<number | null> = [];
-
-    const sample = (now: number) => {
-      const delta = now - lastFrameTime;
-      lastFrameTime = now;
-      if (delta > 0 && delta < 1000) {
-        frames += 1;
-        frameMsTotal += delta;
-      }
-
-      if (now - lastPublishTime >= 500) {
-        const elapsed = now - lastPublishTime;
-        const memory = (performance as PerformanceWithMemory).memory;
-        const canvas = canvasRef.current;
-        const renderMetrics = engineRef.current?.getPerformanceMetrics() ?? { cpuRenderMs: 0, gpuRenderMs: null };
-        cpuHistory = appendGraphSample(cpuHistory, renderMetrics.cpuRenderMs);
-        gpuHistory = appendGraphSample(gpuHistory, renderMetrics.gpuRenderMs);
-        setStats({
-          fps: frames > 0 ? Math.round((frames * 1000) / elapsed) : 0,
-          frameMs: frames > 0 ? frameMsTotal / frames : 0,
-          cpuRenderMs: renderMetrics.cpuRenderMs,
-          gpuRenderMs: renderMetrics.gpuRenderMs,
-          cpuHistory,
-          gpuHistory,
-          heapUsedMb: memory ? bytesToMegabytes(memory.usedJSHeapSize) : null,
-          heapTotalMb: memory ? bytesToMegabytes(memory.totalJSHeapSize) : null,
-          heapLimitMb: memory ? bytesToMegabytes(memory.jsHeapSizeLimit) : null,
-          canvasWidth: canvas?.width ?? 0,
-          canvasHeight: canvas?.height ?? 0,
-          dpr: window.devicePixelRatio || 1,
-        });
-        frames = 0;
-        frameMsTotal = 0;
-        lastPublishTime = now;
-      }
-
-      frame = requestAnimationFrame(sample);
-    };
-
-    frame = requestAnimationFrame(sample);
-    return () => cancelAnimationFrame(frame);
-  }, [active, canvasRef, engineRef]);
-
-  return stats;
-}
-
 function PerformancePanel({ stats }: { stats: PerformanceStats }) {
   return (
     <div className="pointer-events-none w-80 border border-slate-800/70 bg-slate-950/85 p-3 font-mono text-xs text-cyan-100 shadow-xl backdrop-blur">
@@ -605,11 +502,6 @@ function PerfGraph({
   );
 }
 
-function appendGraphSample<T>(history: T[], sample: T) {
-  const next = [...history, sample];
-  return next.length > 80 ? next.slice(next.length - 80) : next;
-}
-
 function createGraphPath(history: Array<number | null>, width: number, height: number, maxMs: number) {
   const samples = history.slice(-80);
   const step = samples.length > 1 ? width / (samples.length - 1) : width;
@@ -628,10 +520,6 @@ function createGraphPath(history: Array<number | null>, width: number, height: n
   });
 
   return path;
-}
-
-function bytesToMegabytes(bytes: number) {
-  return bytes / 1024 / 1024;
 }
 
 function formatMegabytes(value: number | null) {
@@ -808,7 +696,6 @@ function ProjectedPanel({
           </TooltipProvider>
         </ShadcnPortalProvider>
       </main>
-      <div className="footer">Built by <strong>shadcn</strong> at <strong>Vercel</strong>. The source code is available on <strong>GitHub</strong>.</div>
     </div>
   );
 }
