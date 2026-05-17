@@ -16,6 +16,24 @@ type PanelState = {
   dragX: number;
 };
 
+type LightingSettings = {
+  ambient: number;
+  leftDiffuse: number;
+  leftLightX: number;
+  leftLightY: number;
+  leftLightZ: number;
+  rightDiffuse: number;
+  rightLightX: number;
+  rightLightY: number;
+  rightLightZ: number;
+  topDiffuse: number;
+  topLightX: number;
+  topLightY: number;
+  topLightZ: number;
+  shadowStrength: number;
+  shadowBias: number;
+};
+
 type Engine = {
   render(): void;
   resize(): void;
@@ -27,9 +45,27 @@ type Engine = {
   zoom(deltaY: number): void;
   setSceneMesh(sceneMesh: SceneMeshData): void;
   setHitMapVisible(visible: boolean): void;
+  setLighting(settings: LightingSettings): void;
 };
 
 const panelSize = { width: 360, height: 260 };
+const initialLighting: LightingSettings = {
+  ambient: 0.819,
+  leftDiffuse: 0.12,
+  leftLightX: -3.8,
+  leftLightY: 2.35,
+  leftLightZ: 17.35,
+  rightDiffuse: 0.12,
+  rightLightX: 5.5,
+  rightLightY: 2.35,
+  rightLightZ: 17.35,
+  topDiffuse: 0.12,
+  topLightX: 0.6,
+  topLightY: 8,
+  topLightZ: -2.35,
+  shadowStrength: 0.02,
+  shadowBias: 0.008,
+};
 type ProjectedPick = { u: number; v: number; receiverId: number };
 type SceneMeshData = { vertices: Float32Array; indices: Uint16Array | Uint32Array };
 
@@ -144,6 +180,7 @@ export function RawProjectorDemo() {
     counter: 0,
     dragX: 46,
   });
+  const [lighting, setLighting] = useState<LightingSettings>(initialLighting);
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
   const [status, setStatus] = useState("raw WebGL renderer readying");
 
@@ -370,6 +407,11 @@ export function RawProjectorDemo() {
     engineRef.current?.render();
   }, [hitboxesVisible]);
 
+  useEffect(() => {
+    engineRef.current?.setLighting(lighting);
+    engineRef.current?.render();
+  }, [lighting]);
+
   return (
     <main className="min-h-screen bg-zinc-100 text-slate-950">
       <style>{panelCss}</style>
@@ -379,8 +421,8 @@ export function RawProjectorDemo() {
         </div>
       </canvas>
 
-      <div className="pointer-events-none fixed left-5 top-5 z-10 max-w-[520px] text-sm text-slate-700">
-        <div className="pointer-events-auto mb-4 flex gap-2">
+      <div className="pointer-events-none fixed left-5 top-5 z-10 text-sm text-slate-700">
+        <div className="pointer-events-auto flex max-w-[calc(100vw-40px)] items-center gap-2">
           <Button
             variant="secondary"
             onClick={() => {
@@ -395,12 +437,90 @@ export function RawProjectorDemo() {
             <Crosshair className="h-4 w-4" />
             {hitboxesVisible ? "hide" : "show"} projected hit map
           </Button>
+          <div className="min-w-0 rounded-md bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100">{status}</div>
         </div>
-        <h1 className="mb-2 text-2xl font-semibold">Raw projector route</h1>
-        <p>Click the projected React controls on the white objects. Drag empty space to orbit, and scroll to zoom the viewer.</p>
-        <div className="mt-3 rounded-md bg-slate-950/85 px-3 py-2 font-mono text-xs text-cyan-100">{status}</div>
       </div>
+      <LightingPanel settings={lighting} onChange={setLighting} />
     </main>
+  );
+}
+
+function LightingPanel({
+  settings,
+  onChange,
+}: {
+  settings: LightingSettings;
+  onChange: React.Dispatch<React.SetStateAction<LightingSettings>>;
+}) {
+  return (
+    <div className="fixed bottom-5 right-5 z-10 w-[300px] rounded-md border border-slate-200 bg-white/90 p-3 text-xs text-slate-800 shadow-lg backdrop-blur">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold">lighting</h2>
+        <Button variant="secondary" onClick={() => onChange(initialLighting)}>
+          reset
+        </Button>
+      </div>
+      <LightingSlider label="ambient floor" min={0.8} max={1} step={0.001} value={settings.ambient} onChange={(ambient) => onChange((current) => ({ ...current, ambient }))} />
+      <div className="mt-3 border-t border-slate-200 pt-3">
+        <div className="mb-2 font-semibold text-slate-600">left camera light</div>
+        <LightingSlider label="left gain" min={0} max={1.5} step={0.01} value={settings.leftDiffuse} onChange={(leftDiffuse) => onChange((current) => ({ ...current, leftDiffuse }))} />
+        <LightingSlider label="left x" min={-8} max={8} step={0.05} value={settings.leftLightX} onChange={(leftLightX) => onChange((current) => ({ ...current, leftLightX }))} />
+        <LightingSlider label="left y" min={-2} max={8} step={0.05} value={settings.leftLightY} onChange={(leftLightY) => onChange((current) => ({ ...current, leftLightY }))} />
+        <LightingSlider label="left z" min={4} max={28} step={0.05} value={settings.leftLightZ} onChange={(leftLightZ) => onChange((current) => ({ ...current, leftLightZ }))} />
+      </div>
+      <div className="mt-3 border-t border-slate-200 pt-3">
+        <div className="mb-2 font-semibold text-slate-600">right camera light</div>
+        <LightingSlider label="right gain" min={0} max={1.5} step={0.01} value={settings.rightDiffuse} onChange={(rightDiffuse) => onChange((current) => ({ ...current, rightDiffuse }))} />
+        <LightingSlider label="right x" min={-8} max={8} step={0.05} value={settings.rightLightX} onChange={(rightLightX) => onChange((current) => ({ ...current, rightLightX }))} />
+        <LightingSlider label="right y" min={-2} max={8} step={0.05} value={settings.rightLightY} onChange={(rightLightY) => onChange((current) => ({ ...current, rightLightY }))} />
+        <LightingSlider label="right z" min={4} max={28} step={0.05} value={settings.rightLightZ} onChange={(rightLightZ) => onChange((current) => ({ ...current, rightLightZ }))} />
+      </div>
+      <div className="mt-3 border-t border-slate-200 pt-3">
+        <div className="mb-2 font-semibold text-slate-600">top light</div>
+        <LightingSlider label="top gain" min={0} max={1.5} step={0.01} value={settings.topDiffuse} onChange={(topDiffuse) => onChange((current) => ({ ...current, topDiffuse }))} />
+        <LightingSlider label="top x" min={-8} max={8} step={0.05} value={settings.topLightX} onChange={(topLightX) => onChange((current) => ({ ...current, topLightX }))} />
+        <LightingSlider label="top y" min={-2} max={12} step={0.05} value={settings.topLightY} onChange={(topLightY) => onChange((current) => ({ ...current, topLightY }))} />
+        <LightingSlider label="top z" min={-8} max={8} step={0.05} value={settings.topLightZ} onChange={(topLightZ) => onChange((current) => ({ ...current, topLightZ }))} />
+      </div>
+      <div className="mt-3 border-t border-slate-200 pt-3">
+        <div className="mb-2 font-semibold text-slate-600">shadow map</div>
+        <LightingSlider label="shadow strength" min={0} max={0.9} step={0.01} value={settings.shadowStrength} onChange={(shadowStrength) => onChange((current) => ({ ...current, shadowStrength }))} />
+        <LightingSlider label="shadow bias" min={0} max={0.04} step={0.001} value={settings.shadowBias} onChange={(shadowBias) => onChange((current) => ({ ...current, shadowBias }))} />
+      </div>
+    </div>
+  );
+}
+
+function LightingSlider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="mb-2 grid gap-1">
+      <span className="flex justify-between font-medium">
+        {label}
+        <strong>{value.toFixed(step < 0.01 ? 3 : 2)}</strong>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
   );
 }
 
@@ -485,12 +605,17 @@ function createRawProjectorEngine(
   const program = createProgram(gl, vertexShader, fragmentShader);
   const pickProgram = createProgram(gl, vertexShader, pickFragmentShader);
   const receiverPickProgram = createProgram(gl, receiverPickVertexShader, receiverPickFragmentShader);
+  const shadowProgram = createProgram(gl, shadowVertexShader, shadowFragmentShader);
   let mesh = createSceneMesh(gl);
   const domTexture = gl.createTexture();
   const pickTexture = gl.createTexture();
   const pickDepth = gl.createRenderbuffer();
   const pickFramebuffer = gl.createFramebuffer();
-  if (!domTexture || !pickTexture || !pickDepth || !pickFramebuffer) {
+  const shadowTexture = gl.createTexture();
+  const shadowDepth = gl.createRenderbuffer();
+  const shadowFramebuffer = gl.createFramebuffer();
+  const shadowMapSize = 2048;
+  if (!domTexture || !pickTexture || !pickDepth || !pickFramebuffer || !shadowTexture || !shadowDepth || !shadowFramebuffer) {
     throw new Error("Could not allocate raw projector GL resources.");
   }
 
@@ -508,7 +633,8 @@ function createRawProjectorEngine(
   const projection = mat4();
   const viewProjection = mat4();
   const projectorViewProjection = mat4();
-  const light = normalize(subtract(projectorEye, projectorTarget));
+  const shadowViewProjection = mat4();
+  let lightingSettings = { ...initialLighting };
 
   gl.enable(gl.DEPTH_TEST);
   gl.disable(gl.CULL_FACE);
@@ -518,6 +644,18 @@ function createRawProjectorEngine(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, shadowMapSize, shadowMapSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindRenderbuffer(gl.RENDERBUFFER, shadowDepth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, shadowMapSize, shadowMapSize);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, shadowTexture, 0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, shadowDepth);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
   function updateMatrices() {
     const baseDirection = subtract(projectorEye, projectorTarget);
@@ -540,6 +678,15 @@ function createRawProjectorEngine(
     lookAt(projectorView, projectorEye, projectorTarget, [0, 1, 0]);
     perspective(projectorProjection, radians(14), width / height, 1, 100);
     multiply(projectorViewProjection, projectorProjection, projectorView);
+
+    const topLight = normalize([lightingSettings.topLightX, lightingSettings.topLightY, lightingSettings.topLightZ]);
+    const shadowView = mat4();
+    const shadowProjection = mat4();
+    const shadowEye = add(projectorTarget, scale(topLight, 22));
+    const shadowUp: Vec3 = Math.abs(topLight[1]) > 0.9 ? [0, 0, -1] : [0, 1, 0];
+    lookAt(shadowView, shadowEye, projectorTarget, shadowUp);
+    orthographic(shadowProjection, -9.5, 9.5, -7.5, 7.5, 0.1, 45);
+    multiply(shadowViewProjection, shadowProjection, shadowView);
   }
 
   function updateUvFit() {
@@ -559,6 +706,9 @@ function createRawProjectorEngine(
   }
 
   function bindMeshAttributes(targetProgram: WebGLProgram) {
+    for (let index = 0; index < 8; index += 1) {
+      gl.disableVertexAttribArray(index);
+    }
     const position = gl.getAttribLocation(targetProgram, "aPosition");
     const normal = gl.getAttribLocation(targetProgram, "aNormal");
     const receiverId = gl.getAttribLocation(targetProgram, "aReceiverId");
@@ -583,21 +733,62 @@ function createRawProjectorEngine(
     bindMeshAttributes(targetProgram);
     gl.uniformMatrix4fv(gl.getUniformLocation(targetProgram, "uViewProjection"), false, viewProjection);
     gl.uniformMatrix4fv(gl.getUniformLocation(targetProgram, "uProjectorViewProjection"), false, projectorViewProjection);
+    gl.uniformMatrix4fv(gl.getUniformLocation(targetProgram, "uShadowViewProjection"), false, shadowViewProjection);
     const uvFitLocation = gl.getUniformLocation(targetProgram, "uProjectorUvFit");
     if (uvFitLocation) {
       gl.uniform4f(uvFitLocation, uvFit.offsetX, uvFit.offsetY, uvFit.scaleX, uvFit.scaleY);
     }
-    const lightLocation = gl.getUniformLocation(targetProgram, "uLight");
-    if (lightLocation) gl.uniform3fv(lightLocation, light);
+    const leftLightLocation = gl.getUniformLocation(targetProgram, "uLeftLight");
+    if (leftLightLocation) {
+      gl.uniform3fv(leftLightLocation, normalize(subtract([lightingSettings.leftLightX, lightingSettings.leftLightY, lightingSettings.leftLightZ], projectorTarget)));
+    }
+    const rightLightLocation = gl.getUniformLocation(targetProgram, "uRightLight");
+    if (rightLightLocation) {
+      gl.uniform3fv(rightLightLocation, normalize(subtract([lightingSettings.rightLightX, lightingSettings.rightLightY, lightingSettings.rightLightZ], projectorTarget)));
+    }
+    const topLightLocation = gl.getUniformLocation(targetProgram, "uTopLight");
+    if (topLightLocation) {
+      gl.uniform3fv(topLightLocation, normalize(subtract([lightingSettings.topLightX, lightingSettings.topLightY, lightingSettings.topLightZ], projectorTarget)));
+    }
+    const ambientLocation = gl.getUniformLocation(targetProgram, "uAmbientFloor");
+    if (ambientLocation) gl.uniform1f(ambientLocation, lightingSettings.ambient);
+    const leftDiffuseLocation = gl.getUniformLocation(targetProgram, "uLeftDiffuseGain");
+    if (leftDiffuseLocation) gl.uniform1f(leftDiffuseLocation, lightingSettings.leftDiffuse);
+    const rightDiffuseLocation = gl.getUniformLocation(targetProgram, "uRightDiffuseGain");
+    if (rightDiffuseLocation) gl.uniform1f(rightDiffuseLocation, lightingSettings.rightDiffuse);
+    const topDiffuseLocation = gl.getUniformLocation(targetProgram, "uTopDiffuseGain");
+    if (topDiffuseLocation) gl.uniform1f(topDiffuseLocation, lightingSettings.topDiffuse);
+    const shadowStrengthLocation = gl.getUniformLocation(targetProgram, "uShadowStrength");
+    if (shadowStrengthLocation) gl.uniform1f(shadowStrengthLocation, lightingSettings.shadowStrength);
+    const shadowBiasLocation = gl.getUniformLocation(targetProgram, "uShadowBias");
+    if (shadowBiasLocation) gl.uniform1f(shadowBiasLocation, lightingSettings.shadowBias);
     const textureLocation = gl.getUniformLocation(targetProgram, "uDomTexture");
     if (textureLocation) {
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, domTexture);
       gl.uniform1i(textureLocation, 0);
     }
+    const shadowTextureLocation = gl.getUniformLocation(targetProgram, "uShadowMap");
+    if (shadowTextureLocation) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+      gl.uniform1i(shadowTextureLocation, 1);
+    }
     const hitLocation = gl.getUniformLocation(targetProgram, "uShowHitMap");
     if (hitLocation) gl.uniform1f(hitLocation, !pickPass && hitMapVisible ? 1 : 0);
     gl.drawElements(gl.TRIANGLES, mesh.indexCount, mesh.indexType, 0);
+  }
+
+  function renderShadowMap() {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
+    gl.viewport(0, 0, shadowMapSize, shadowMapSize);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.useProgram(shadowProgram);
+    bindMeshAttributes(shadowProgram);
+    gl.uniformMatrix4fv(gl.getUniformLocation(shadowProgram, "uShadowViewProjection"), false, shadowViewProjection);
+    gl.drawElements(gl.TRIANGLES, mesh.indexCount, mesh.indexType, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
   function resizePickTarget() {
@@ -618,6 +809,7 @@ function createRawProjectorEngine(
   const engine: Engine = {
     render() {
       updateMatrices();
+      renderShadowMap();
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.clearColor(1, 1, 1, 1);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -704,16 +896,23 @@ function createRawProjectorEngine(
     setHitMapVisible(visible) {
       hitMapVisible = visible;
     },
+    setLighting(settings) {
+      lightingSettings = { ...settings };
+    },
     dispose() {
       gl.deleteProgram(program);
       gl.deleteProgram(pickProgram);
       gl.deleteProgram(receiverPickProgram);
+      gl.deleteProgram(shadowProgram);
       gl.deleteBuffer(mesh.vertexBuffer);
       gl.deleteBuffer(mesh.indexBuffer);
       gl.deleteTexture(domTexture);
       gl.deleteTexture(pickTexture);
+      gl.deleteTexture(shadowTexture);
       gl.deleteRenderbuffer(pickDepth);
+      gl.deleteRenderbuffer(shadowDepth);
       gl.deleteFramebuffer(pickFramebuffer);
+      gl.deleteFramebuffer(shadowFramebuffer);
     },
   };
   engine.resize();
@@ -725,12 +924,15 @@ attribute vec3 aPosition;
 attribute vec3 aNormal;
 uniform mat4 uViewProjection;
 uniform mat4 uProjectorViewProjection;
+uniform mat4 uShadowViewProjection;
 varying vec3 vNormal;
 varying vec4 vProjected;
+varying vec4 vShadowCoord;
 void main() {
   vec4 world = vec4(aPosition, 1.0);
   vNormal = normalize(aNormal);
   vProjected = uProjectorViewProjection * world;
+  vShadowCoord = uShadowViewProjection * world;
   gl_Position = uViewProjection * world;
 }
 `;
@@ -738,11 +940,24 @@ void main() {
 const fragmentShader = `
 precision mediump float;
 uniform sampler2D uDomTexture;
-uniform vec3 uLight;
+uniform sampler2D uShadowMap;
+uniform vec3 uLeftLight;
+uniform vec3 uRightLight;
+uniform vec3 uTopLight;
+uniform float uAmbientFloor;
+uniform float uLeftDiffuseGain;
+uniform float uRightDiffuseGain;
+uniform float uTopDiffuseGain;
+uniform float uShadowStrength;
+uniform float uShadowBias;
 uniform float uShowHitMap;
 uniform vec4 uProjectorUvFit;
 varying vec3 vNormal;
 varying vec4 vProjected;
+varying vec4 vShadowCoord;
+float decodeDepth(vec4 rgbaDepth) {
+  return dot(rgbaDepth, vec4(1.0, 1.0 / 255.0, 1.0 / 65025.0, 1.0 / 16581375.0));
+}
 void main() {
   vec3 ndc = vProjected.xyz / vProjected.w;
   vec2 rawUv = ndc.xy * 0.5 + 0.5;
@@ -751,7 +966,17 @@ void main() {
     step(uProjectorUvFit.x, rawUv.x) * step(rawUv.x, uProjectorUvFit.x + uProjectorUvFit.z) *
     step(uProjectorUvFit.y, rawUv.y) * step(rawUv.y, uProjectorUvFit.y + uProjectorUvFit.w);
   float inside = insideRaw * step(-1.0, ndc.z) * step(ndc.z, 1.0);
-  vec3 base = vec3(1.0) * (0.88 + max(dot(normalize(vNormal), uLight), 0.0) * 0.12);
+  float leftDiffuse = max(dot(normalize(vNormal), uLeftLight), 0.0);
+  float rightDiffuse = max(dot(normalize(vNormal), uRightLight), 0.0);
+  float topDiffuse = max(dot(normalize(vNormal), uTopLight), 0.0);
+  vec3 base = min(vec3(1.0), vec3(uAmbientFloor + leftDiffuse * uLeftDiffuseGain + rightDiffuse * uRightDiffuseGain + topDiffuse * uTopDiffuseGain));
+  vec3 shadowNdc = vShadowCoord.xyz / vShadowCoord.w;
+  vec2 shadowUv = shadowNdc.xy * 0.5 + 0.5;
+  float shadowInside = step(0.0, shadowUv.x) * step(shadowUv.x, 1.0) * step(0.0, shadowUv.y) * step(shadowUv.y, 1.0) * step(-1.0, shadowNdc.z) * step(shadowNdc.z, 1.0);
+  float currentDepth = shadowNdc.z * 0.5 + 0.5;
+  float storedDepth = decodeDepth(texture2D(uShadowMap, shadowUv));
+  float shadowed = step(storedDepth + uShadowBias, currentDepth) * shadowInside;
+  base *= 1.0 - shadowed * uShadowStrength;
   vec4 projected = texture2D(uDomTexture, uv);
   vec3 color = mix(base, projected.rgb, projected.a * inside);
   if (uShowHitMap > 0.5 && inside > 0.5 && projected.a > 0.08) {
@@ -803,6 +1028,28 @@ precision mediump float;
 varying float vReceiverId;
 void main() {
   gl_FragColor = vec4(vReceiverId / 255.0, 0.0, 0.0, 1.0);
+}
+`;
+
+const shadowVertexShader = `
+attribute vec3 aPosition;
+uniform mat4 uShadowViewProjection;
+void main() {
+  gl_Position = uShadowViewProjection * vec4(aPosition, 1.0);
+}
+`;
+
+const shadowFragmentShader = `
+precision mediump float;
+vec4 encodeDepth(float value) {
+  vec4 bitShift = vec4(1.0, 255.0, 65025.0, 16581375.0);
+  vec4 bitMask = vec4(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0, 0.0);
+  vec4 rgbaDepth = fract(value * bitShift);
+  rgbaDepth -= rgbaDepth.yzww * bitMask;
+  return rgbaDepth;
+}
+void main() {
+  gl_FragColor = encodeDepth(gl_FragCoord.z);
 }
 `;
 
@@ -1034,6 +1281,17 @@ function perspective(out: Float32Array, fovy: number, aspect: number, near: numb
   out[14] = (2 * far * near) / (near - far);
 }
 
+function orthographic(out: Float32Array, left: number, right: number, bottom: number, top: number, near: number, far: number) {
+  out.fill(0);
+  out[0] = 2 / (right - left);
+  out[5] = 2 / (top - bottom);
+  out[10] = -2 / (far - near);
+  out[12] = -(right + left) / (right - left);
+  out[13] = -(top + bottom) / (top - bottom);
+  out[14] = -(far + near) / (far - near);
+  out[15] = 1;
+}
+
 function lookAt(out: Float32Array, eye: Vec3, center: Vec3, up: Vec3) {
   const z = normalize(subtract(eye, center));
   const x = normalize(cross(up, z));
@@ -1076,6 +1334,14 @@ function radians(degrees: number) {
 
 function subtract(a: Vec3, b: Vec3): Vec3 {
   return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function add(a: Vec3, b: Vec3): Vec3 {
+  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+}
+
+function scale(a: Vec3, amount: number): Vec3 {
+  return [a[0] * amount, a[1] * amount, a[2] * amount];
 }
 
 function cross(a: Vec3, b: Vec3): Vec3 {
