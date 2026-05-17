@@ -2,14 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { DebugOverlay } from "../components/demo/DebugOverlay";
+import { ProjectedPanel } from "../components/demo/ProjectedPanel";
+import { ViewportGizmo } from "../components/demo/ViewportGizmo";
+import { usePerformanceStats, type RenderPerformanceMetrics } from "../lib/usePerformanceStats";
 import { describeTarget } from "../projection/domHitTest";
 import { HtmlToCanvasTexture } from "../projection/htmlToCanvasTexture";
 import { createProjectedDomViewport, type ProjectedDomViewport } from "../projection/projectedDomViewport";
-import { DebugOverlay } from "../features/raw-projector/DebugOverlay";
-import { ProjectedPanel } from "../features/raw-projector/ProjectedPanel";
-import type { Vec3, ViewState } from "../features/raw-projector/projectorTypes";
-import { usePerformanceStats, type RenderPerformanceMetrics } from "../features/raw-projector/usePerformanceStats";
-import { ViewportGizmo } from "../features/raw-projector/ViewportGizmo";
+import type { Vec3, ViewState } from "../types/projector";
 
 type LightingSettings = {
   ambient: number;
@@ -87,7 +87,7 @@ const panelCss = `
 body { margin: 0; }
 button, input, textarea, select { font: inherit; margin: 0; }
 button { appearance: none; -webkit-appearance: none; }
-.raw-projector-panel {
+.demo-panel {
   width: 1400px;
   height: 875px;
   padding: 0;
@@ -141,7 +141,7 @@ button { appearance: none; -webkit-appearance: none; }
 }
 `;
 
-export function RawProjectorDemo() {
+export function Demo() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const projectionSourceRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +151,7 @@ export function RawProjectorDemo() {
   const orbitRef = useRef<{ active: boolean; x: number; y: number }>({ active: false, x: 0, y: 0 });
   const [debugVisible, setDebugVisible] = useState(false);
   const [hitboxesVisible, setHitboxesVisible] = useState(false);
-  const [status, setStatus] = useState("raw WebGL renderer readying");
+  const [status, setStatus] = useState("demo renderer readying");
   const [viewState, setViewState] = useState<ViewState | null>(null);
   const perfStats = usePerformanceStats(debugVisible, canvasRef, engineRef);
 
@@ -165,7 +165,7 @@ export function RawProjectorDemo() {
     viewportRef.current = createProjectedDomViewport(panel);
     canvas.setAttribute("layoutsubtree", "");
     canvas.layoutSubtree = true;
-    const engine = createRawProjectorEngine(canvas, projectionSource, texture.canvas);
+    const engine = createDemoEngine(canvas, projectionSource, texture.canvas);
     engineRef.current = engine;
     setViewState(engine.getViewState());
     let disposed = false;
@@ -194,7 +194,7 @@ export function RawProjectorDemo() {
       engine.render();
       setStatus("loaded original GLB geometry");
     }).catch((error) => {
-      console.warn("[raw-projector] original GLB load failed; using procedural fallback", error);
+      console.warn("[demo] original GLB load failed; using procedural fallback", error);
       setStatus("using procedural fallback geometry");
     });
 
@@ -391,7 +391,7 @@ export function RawProjectorDemo() {
   return (
     <main className="min-h-screen bg-zinc-100 text-slate-950">
       <style>{panelCss}</style>
-      <canvas ref={canvasRef} className="fixed inset-0 h-full w-full" aria-label="Raw WebGL projected DOM demo">
+      <canvas ref={canvasRef} className="fixed inset-0 h-full w-full" aria-label="Projected DOM demo">
         <div
           ref={projectionSourceRef}
           className="projection-source pointer-events-none overflow-hidden"
@@ -414,7 +414,7 @@ export function RawProjectorDemo() {
   );
 }
 
-function createRawProjectorEngine(
+function createDemoEngine(
   canvas: HTMLCanvasElement,
   domElement: HTMLElement,
   fallbackCanvas: HTMLCanvasElement,
@@ -439,7 +439,7 @@ function createRawProjectorEngine(
   const shadowFramebuffer = gl.createFramebuffer();
   const shadowMapSize = 2048;
   if (!domTexture || !pickTexture || !pickDepth || !pickFramebuffer || !shadowTexture || !shadowDepth || !shadowFramebuffer) {
-    throw new Error("Could not allocate raw projector GL resources.");
+    throw new Error("Could not allocate demo GL resources.");
   }
 
   let width = 1;
@@ -736,7 +736,7 @@ function createRawProjectorEngine(
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (!message.includes("No cached paint record")) {
-            console.warn("[raw-projector] native element texture upload failed; falling back to SVG raster texture", error);
+            console.warn("[demo] native element texture upload failed; falling back to SVG raster texture", error);
           }
         }
       }

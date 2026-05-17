@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import type { Vec3, ViewState } from "./projectorTypes";
+import type { Vec3, ViewState } from "../../types/projector";
 
 export function ViewportGizmo({
   view,

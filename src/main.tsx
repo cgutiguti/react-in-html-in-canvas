@@ -1,10 +1,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { RawProjectorDemo } from "./routes/RawProjectorDemo";
+import { Demo } from "./routes/Demo";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <RawProjectorDemo />
+    <Demo />
   </React.StrictMode>,
 );

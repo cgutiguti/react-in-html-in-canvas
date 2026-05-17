@@ -18,7 +18,7 @@ export function ProjectedPanel({
   );
 
   return (
-    <div ref={setPanelNode} className="raw-projector-panel style-nova">
+    <div ref={setPanelNode} className="demo-panel style-nova">
       <header className="shadcn-topbar">
         <div className="shadcn-mark" />
         <nav className="shadcn-nav">
