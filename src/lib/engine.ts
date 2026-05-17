@@ -91,6 +91,9 @@ const PICK_HIGH_BYTE_MULTIPLIER = 256;
 const DEFAULT_RECEIVER_ID = 1;
 const MODEL_RECEIVER_ID_START = DEFAULT_RECEIVER_ID;
 const BACKGROUND_MESH_NAME = "bg";
+const PUBLIC_BASE_URL = import.meta.env.BASE_URL;
+const SCENE_MODEL_URL = `${PUBLIC_BASE_URL}model.glb`;
+const DRACO_DECODER_PATH = `${PUBLIC_BASE_URL}draco/`;
 const CYLINDER_SEGMENTS = 36;
 const PICK_PIXEL_SIZE = 1;
 const PROCEDURAL_WALL_RECEIVER_ID = 1;
@@ -618,10 +621,10 @@ function compileShader(gl: WebGLRenderingContext, type: number, source: string) 
 export async function loadSceneModel(): Promise<SceneMeshData> {
   const loader = new GLTFLoader();
   const dracoLoader = new DRACOLoader();
-  dracoLoader.setDecoderPath("/draco/");
+  dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
   loader.setDRACOLoader(dracoLoader);
   try {
-    const gltf = await loader.loadAsync("/model.glb");
+    const gltf = await loader.loadAsync(SCENE_MODEL_URL);
     const vertices: number[] = [];
     const indices: number[] = [];
     const position = new THREE.Vector3();
