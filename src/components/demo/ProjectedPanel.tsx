@@ -19,25 +19,7 @@ export function ProjectedPanel({
 
   return (
     <div ref={setPanelNode} className="demo-panel style-nova">
-      <header className="shadcn-topbar">
-        <div className="shadcn-mark" />
-        <nav className="shadcn-nav">
-          <span>Docs</span>
-          <span>Components</span>
-          <span>Blocks</span>
-          <span>Charts</span>
-          <span>Directory</span>
-          <span>Create</span>
-        </nav>
-        <div className="shadcn-search">Search documentation...</div>
-        <div className="shadcn-mini">
-          <span>◕ 115k</span>
-          <span>▯</span>
-          <span>◐</span>
-        </div>
-        <button className="shadcn-new" type="button">＋ New</button>
-      </header>
-      <main className="shadcn-stage theme-container">
+      <main className="demo-stage theme-container">
         <ShadcnPortalProvider container={portalContainer}>
           <TooltipProvider>
             <RootComponents />

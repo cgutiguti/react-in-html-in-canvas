@@ -98,43 +98,7 @@ button { appearance: none; -webkit-appearance: none; }
   line-height: 1.35;
   overflow: hidden;
 }
-.shadcn-topbar {
-  height: 58px;
-  display: flex;
-  align-items: center;
-  gap: 23px;
-  padding: 0 20px;
-  color: #18181b;
-  font-weight: 600;
-}
-.shadcn-mark { width: 18px; height: 26px; position: relative; }
-.shadcn-mark:before, .shadcn-mark:after {
-  content: "";
-  position: absolute;
-  width: 4px;
-  height: 20px;
-  border-radius: 999px;
-  background: #09090b;
-  transform: rotate(38deg);
-}
-.shadcn-mark:before { left: 3px; top: 4px; }
-.shadcn-mark:after { left: 11px; top: -1px; }
-.shadcn-nav { display: flex; gap: 24px; align-items: center; font-size: 15px; }
-.shadcn-search {
-  margin-left: auto;
-  width: 214px;
-  height: 34px;
-  border-radius: 8px;
-  border: 1px solid #d4d4d8;
-  background: #fafafa;
-  color: #71717a;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-}
-.shadcn-mini { display: flex; gap: 14px; align-items: center; color: #52525b; }
-.shadcn-new { height: 34px; padding: 0 14px; border-radius: 9px; border: 1px solid #d4d4d8; background: #f4f4f5; color: #18181b; font-weight: 700; }
-.shadcn-stage {
+.demo-stage {
   width: 1240px;
   margin: 52px auto 0;
   display: block;
