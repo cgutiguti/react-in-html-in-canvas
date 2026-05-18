@@ -9,3 +9,9 @@ The important part is that the React component remains real DOM. Chrome provides
 
 https://github.com/user-attachments/assets/c46855db-80a6-4286-b4dc-57c17352fd46
 
+
+
+# Credits
+The React component panel used in this demo was made with [Shadcn](https://ui.shadcn.com/). 
+This experiment was inspired by [Cullen Webber](https://x.com/SinzVII/status/2042903252505936198?s=20). 
+Read more about HTML-in-canvas [here](https://github.com/WICG/html-in-canvas).
