@@ -13,6 +13,8 @@ const PANEL_BASE_LINE_HEIGHT = 1.35;
 const CANARY_DOWNLOAD_URL = "https://www.google.com/chrome/canary/";
 const CANVAS_DRAW_ELEMENT_FLAG_URL = "chrome://flags/#enable-canvas-draw-element";
 const EXPERIMENTAL_WEB_PLATFORM_FLAG_URL = "chrome://flags/#enable-experimental-web-platform-features";
+type HtmlInCanvasSupport = { supported: boolean; missingFeatures: string[] };
+let htmlInCanvasSupportCache: HtmlInCanvasSupport | null = null;
 const panelCss = `
 * { box-sizing: border-box; }
 body { margin: 0; }
@@ -121,32 +123,40 @@ function HtmlInCanvasSetup({ missingFeatures }: { missingFeatures: string[] }) {
   );
 }
 
-function getHtmlInCanvasSupport() {
+function getHtmlInCanvasSupport(): HtmlInCanvasSupport {
+  if (htmlInCanvasSupportCache) return htmlInCanvasSupportCache;
+
   if (typeof document === "undefined") {
-    return { supported: false, missingFeatures: ["browser DOM"] };
+    htmlInCanvasSupportCache = { supported: false, missingFeatures: ["browser DOM"] };
+    return htmlInCanvasSupportCache;
   }
 
   const canvas = document.createElement("canvas");
   const gl = canvas.getContext("webgl");
-  const missingFeatures = [
-    "layoutsubtree",
-    "requestPaint()",
-    "captureElementImage()",
-    "texElementImage2D()",
-  ].filter((feature) => {
-    switch (feature) {
-      case "layoutsubtree":
-        return !("layoutSubtree" in canvas) && !("layoutsubtree" in canvas);
-      case "requestPaint()":
-        return typeof canvas.requestPaint !== "function";
-      case "captureElementImage()":
-        return typeof canvas.captureElementImage !== "function";
-      case "texElementImage2D()":
-        return !gl || typeof gl.texElementImage2D !== "function";
-      default:
-        return true;
-    }
-  });
+  try {
+    const missingFeatures = [
+      "layoutsubtree",
+      "requestPaint()",
+      "captureElementImage()",
+      "texElementImage2D()",
+    ].filter((feature) => {
+      switch (feature) {
+        case "layoutsubtree":
+          return !("layoutSubtree" in canvas) && !("layoutsubtree" in canvas);
+        case "requestPaint()":
+          return typeof canvas.requestPaint !== "function";
+        case "captureElementImage()":
+          return typeof canvas.captureElementImage !== "function";
+        case "texElementImage2D()":
+          return !gl || typeof gl.texElementImage2D !== "function";
+        default:
+          return true;
+      }
+    });
 
-  return { supported: missingFeatures.length === 0, missingFeatures };
+    htmlInCanvasSupportCache = { supported: missingFeatures.length === 0, missingFeatures };
+    return htmlInCanvasSupportCache;
+  } finally {
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  }
 }
